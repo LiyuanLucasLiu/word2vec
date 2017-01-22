@@ -26,6 +26,8 @@
 #define FREE(x) if (x != NULL) {free(x);}
 #define CHECKNULL(x) if (x == NULL) {printf("Memory allocation failed\n"); exit(1);}
 #define NRAND next_random = next_random * (unsigned long long)25214903917 + 11;
+#define BWRITE(x,f) fwrite(&x , sizeof(real), 1, f);
+#define SWRITE(x,f) fprintf(f, "%lf ", x);
 
 typedef float real;                    // Precision of float numbers
 
@@ -148,20 +150,20 @@ void InitNet() {
   ph2 = (real*) calloc(d_size, sizeof(real));
   CHECKNULL(ph2)
 
-  for (b = 0; b < c_size; b++) for (a = 0; a < c_length; a++) {
+  for (b = 0; b < c_size; ++b) for (a = 0; a < c_length; ++a) {
     c[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / c_length;
     cneg[b * c_length + a] = 0;
   }
-  for (b = 0; b < l_size; b++) lb[b] = 0;
-  for (b = 0; b < d_size; b++) db[b] = 0;
-  for (b = 0; b < d_size; b++) ph1[b] = 0.5;
-  for (b = 0; b < d_size; b++) ph2[b] = 0.5;
-  for (b = 0; b < l_size; b++) for (a = 0; a < l_length; a++)
+  for (b = 0; b < l_size; ++b) lb[b] = 0;
+  for (b = 0; b < d_size; ++b) db[b] = 0;
+  for (b = 0; b < d_size; ++b) ph1[b] = 0.5;
+  for (b = 0; b < d_size; ++b) ph2[b] = 0.5;
+  for (b = 0; b < l_size; ++b) for (a = 0; a < l_length; ++a)
     l[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length;
-  for (b = 0; b < d_size; b++) for (a = 0; a < l_length; a++)
+  for (b = 0; b < d_size; ++b) for (a = 0; a < l_length; ++a)
     d[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / d_length; 
-  for (b = 0; b < c_length; b++) for (a = 0; a < l_length; a++)
-    o[b * l_length + a] = 0; 
+  for (b = 0; b < l_length; ++b) for (a = 0; a < c_length; ++a)
+    o[b * c_length + a] = 0; 
 }
 
 void DestroyNet() {
@@ -292,8 +294,8 @@ void *TrainModelThread(void *id) {
         for (j = 0; j < c_length; ++j) c_error[j] += c[l1 + j];
       }
       for (a = 0; a < c_length; ++a) c_error[a] /= i;
-      for (a = 0; a < l_length; ++a) { z[a] = 0.0; z_error[a] = 0.0;}
       for (a = 0; a < l_length; ++a) {
+        z[a] = 0.0; z_error[a] = 0.0;
         l1 = a * c_length;
         for (i = 0; i < c_length; ++i) z[a] += c_error[i] * o[l1 + i];
       }
@@ -448,6 +450,8 @@ void TrainModel() {
   }
   printf("Starting training using threads %d\n", num_threads);
   starting_alpha = alpha;
+  tot_c_count = 0;
+  memset(cCount, 0, c_size);
   if (negative > 0) {
     for (a = 0; a < ins_num; ++a) {
       clist = data[a].cList;
@@ -469,19 +473,75 @@ void SaveModel() {
     fprintf(stderr, "Cannot open %s: permission denied\n", output_file);
     exit(1);
   }
-  fprintf(fo, "%lld %lld\n", vocab_size, layer1_size);
-  for (a = 0; a < vocab_size; a++) {
-    if (vocab[a].word != NULL) {
-      fprintf(fo, "%s ", vocab[a].word);
-    }
-    if (binary) for (b = 0; b < layer1_size; b++) fwrite(&syn0[a * layer1_size + b], sizeof(real), 1, fo);
-    else for (b = 0; b < layer1_size; b++) fprintf(fo, "%lf ", syn0[a * layer1_size + b]);
+  fprintf(fo, "%lld %lld %lld %lld %lld %lld\n", c_size, c_length, l_size, l_length, d_size, NONE_idx);
+  if (binary) {
+    BWRITE(lambda1, fo)
+    BWRITE(lambda2, fo)
     fprintf(fo, "\n");
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) BWRITE(c[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < l_size; ++b) BWRITE(lb[b], fo)
+    fprintf(fo, "\n"); 
+    for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) BWRITE(ph1[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) BWRITE(ph2[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < l_size; ++b) {
+      for (a = 0; a < l_length; ++a) BWRITE(l[b * l_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < d_size; ++b) {
+      for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < l_length; ++b) {
+      for (a = 0; a < c_length; ++a) BWRITE(o[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+  } else {
+    SWRITE(lambda1, fo)
+    SWRITE(lambda2, fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) SWRITE(c[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < l_size; ++b) SWRITE(lb[b], fo)
+    fprintf(fo, "\n"); 
+    for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) SWRITE(ph1[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) SWRITE(ph2[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < l_size; ++b) {
+      for (a = 0; a < l_length; ++a) SWRITE(l[b * l_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < d_size; ++b) {
+      for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < l_length; ++b) {
+      for (a = 0; a < c_length; ++a) SWRITE(o[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
   }
   fclose(fo);
   free(table);
   free(pt);
-  DestroyVocab();
 }
 
 int ArgPos(char *str, int argc, char **argv) {
@@ -505,7 +565,7 @@ int main(int argc, char **argv) {
     printf("\t-train <file>\n");
     printf("\t\tUse text data from <file> to train the model\n");
     printf("\t-output <file>\n");
-    printf("\t\tUse <file> to save the resulting word vectors / word clusters\n");
+    printf("\t\tUse <file> to save the model\n");
     printf("\t-cleng <int>\n");
     printf("\t\tSet size of word vectors; default is 100\n");
     printf("\t-lleng <int>\n");
@@ -575,7 +635,6 @@ int main(int argc, char **argv) {
   TrainModel();
   SaveModel();
   DestroyNet();
-  free(vocab_hash);
   // free(expTable);
   free(sigTable);
   return 0;
