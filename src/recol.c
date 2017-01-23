@@ -49,7 +49,7 @@ char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
 int binary = 1, debug_mode = 2, reSample = 10, min_count = 5, num_threads = 1, min_reduce = 1;
-long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, NONE_idx, tot_c_count = 0;
+long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
 real lambda1 = 0.3, lambda2 = 0.3;
 long long ins_num = 181965, ins_count_actual = 0;
 long long iters = 10;
@@ -356,13 +356,14 @@ void *TrainModelThread(void *id) {
       }
       sum_softmax = 0.0;
       g = 0.0;
-      for (i = 0 ; i < l_size; ++i) if (i!= NONE_idx) {
+      for (i = 0 ; i < l_size; ++i) {//if (i!= NONE_idx) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
         // score_p[i] += f; //max
         // g += f;
-        score_kl[i] = exp(f);
+        if (f > MAX_EXP || f < -MAX_EXP) score_kl[i] = exp(f);
+        else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         sum_softmax += score_kl[i];
       }
       // g /= (l_size - 1);
@@ -376,7 +377,7 @@ void *TrainModelThread(void *id) {
       // label = NONE_idx;
       g = 0;
       label = -1;
-      for (i = 0; i < l_size; ++i) if (score_n[i] != 0) {
+      for (i = 0; i < l_size; ++i) if (score_p[i] != 0) {
         h = f - score_n[i] + score_p[i];
         if (-1==label || h > g){
           label = i;
@@ -385,21 +386,26 @@ void *TrainModelThread(void *id) {
       }
       // update params 
       // update l, lb
+      if (-1 == label){
+        for (i = 0; i < l_size; ++i) printf("%lld, %f\n", i, score_p[i]);
+        exit(1);
+      }
       // printf("0:%lld, %f, %f\n", label, z_error[0], z[0]);
-      if (label == NONE_idx) {
-        // printf("%lld\n", cur_id);
-        for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
-          l1 = i * l_length;
-          f = alpha * score_kl[i] / sum_softmax;
-          lb[i] += alpha / (l_size - 1) - f;
-          // if (0== i) printf("%lld, %f, %f, %f, %f, %f\n",i, z_error[0], f, sum_softmax, score_kl[0], score_kl[1]);
-          for (a = 0; a < l_length; ++a) {
-            z_error[a] += alpha / (l_size-1) - l[l1 + a] * f;
-            l[l1 + a] += alpha / (l_size-1) - z[a] * f;
-          }
-          if (0== i) printf("%lld, %f, %f\n",cur_id, l[0], l[1]);
-        } 
-      } else {
+      // if (label == NONE_idx) {
+      //   // printf("%lld\n", cur_id);
+      //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+      //     l1 = i * l_length;
+      //     f = alpha * score_kl[i] / sum_softmax;
+      //     lb[i] += alpha / (l_size - 1) - f;
+      //     // if (0== i) printf("%lld, %f, %f, %f, %f, %f\n",i, z_error[0], f, sum_softmax, score_kl[0], score_kl[1]);
+      //     for (a = 0; a < l_length; ++a) {
+      //       z_error[a] += alpha / (l_size-1) - l[l1 + a] * f;
+      //       l[l1 + a] += alpha / (l_size-1) - z[a] * f;
+      //     }
+      //     if (0== i) printf("%lld, %f, %f\n",cur_id, l[0], l[1]);
+      //   } 
+      // } else 
+      {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
         // printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
@@ -408,8 +414,8 @@ void *TrainModelThread(void *id) {
           z_error[a] += l[l1 + a] * (alpha - f);
           l[l1 + a] += z[a] * (alpha - f) ;
         }
-        printf("%f\n", z_error[0]);
-        for (i = 0; i < l_size; ++i) if (i != NONE_idx && i != label) {
+        // printf("%f\n", z_error[0]);
+        for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
           lb[i] -= f;
@@ -486,6 +492,7 @@ void *TrainModelThread(void *id) {
       copyIns(data + cur_id, data + cur_id + b);
       copyIns(data + cur_id + b, &tmpIns);
     }
+    ++cur_iter;
   }
   pthread_exit(NULL);
 }
@@ -524,7 +531,7 @@ void SaveModel() {
     fprintf(stderr, "Cannot open %s: permission denied\n", output_file);
     exit(1);
   }
-  fprintf(fo, "%lld %lld %lld %lld %lld %lld\n", c_size, c_length, l_size, l_length, d_size, NONE_idx);
+  fprintf(fo, "%lld %lld %lld %lld %lld\n", c_size, c_length, l_size, l_length, d_size);//, NONE_idx);
   if (binary) {
     BWRITE(lambda1, fo)
     BWRITE(lambda2, fo)
@@ -646,10 +653,10 @@ int main(int argc, char **argv) {
     printf("\t\tnumber of iters; default is 10\n");
     printf("\t-alpha_update_every <file>\n");
     printf("\t\tprint every # of instances; default is 1000\n");
-    printf("\t-none_idx <file>\n");
-    printf("\t\tthe index of None Type\n");
+    // printf("\t-none_idx <file>\n");
+    // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
-    printf("./recol -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.model -none_idx 5 \n\n");
+    printf("./recol -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.model\n\n");//-none_idx 5 
     return 0;
   }
   output_file[0] = 0;
@@ -669,19 +676,19 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
-  else {fprintf(stderr, "none_idx is required" );}
+  // if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
+  // else {fprintf(stderr, "none_idx is required" );}
   if ((i = ArgPos((char *)"-lambda1", argc, argv)) > 0) lambda1 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda2", argc, argv)) > 0) lambda2 = atof(argv[i + 1]);
-  // expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
+  expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   sigTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   if (sigTable == NULL) {
     fprintf(stderr, "out of memory\n");
     exit(1);
   }
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
-    sigTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
-    sigTable[i] = sigTable[i] / (sigTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
+    expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
+    sigTable[i] = expTable[i] / (expTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
   }
   printf("Loading training file %s\n", train_file);
   LoadTrainingData();
@@ -689,11 +696,11 @@ int main(int argc, char **argv) {
   InitNet();
   printf("start training \n ");
   TrainModel();
-  printf("Saving to %s\n", output_file);
+  printf("\nSaving to %s\n", output_file);
   SaveModel();
   printf("releasing memory");
   DestroyNet();
-  // free(expTable);
+  free(expTable);
   free(sigTable);
   return 0;
 }
