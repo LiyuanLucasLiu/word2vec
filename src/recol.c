@@ -235,13 +235,13 @@ void *TrainModelThread(void *id) {
   real f, g, h;
   long long target, label;
   struct training_ins *cur_ins;
-  real *c_error = (real *) calloc(c_size, sizeof(real));
-  real *z = (real *) calloc(l_size, sizeof(real));
-  real *z_error = (real *) calloc(l_size, sizeof(real));
-  real *score_p = (real *) calloc(l_size, sizeof(real));
-  real *score_n = (real *) calloc(l_size, sizeof(real));
-  real *score_kl = (real *) calloc(l_size, sizeof(real));
-  real *sigmoidD = (real *) calloc(l_size, sizeof(real));
+  real *c_error = (real *) calloc(c_length, sizeof(real));
+  real *z = (real *) calloc(l_length, sizeof(real));
+  real *z_error = (real *) calloc(l_length, sizeof(real));
+  real *score_p = (real *) calloc(l_length, sizeof(real));
+  real *score_n = (real *) calloc(l_length, sizeof(real));
+  real *score_kl = (real *) calloc(l_length, sizeof(real));
+  real *sigmoidD = (real *) calloc(l_length, sizeof(real));
   real sum_softmax;
   struct training_ins tmpIns;
   while (cur_iter < iters) {
@@ -259,7 +259,7 @@ void *TrainModelThread(void *id) {
             ins_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000));
           // fflush(stdout);
         }
-        alpha = starting_alpha * (1 - ins_count_actual) / (real) (ins_num * iters + 1);
+        alpha = starting_alpha * (1 - ins_count_actual / (real) (ins_num * iters + 1));
         if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001;
       }
 
@@ -328,11 +328,13 @@ void *TrainModelThread(void *id) {
       }
       for (a = 0; a < c_length; ++a) c_error[a] /= i;
       for (a = 0; a < l_length; ++a) {
-        z[a] = 0.0; z_error[a] = 0.0;
+        z[a] = 0;
+        z_error[a] = 0;
         l1 = a * c_length;
         for (i = 0; i < c_length; ++i) z[a] += c_error[i] * o[l1 + i];
       }
-
+      // printf("-1:%f, %f\n", z_error[0], z[0]);
+      
       // infer true labels
       // score here is prob, which is the larger the better
       for (i = 0; i < l_size; ++i) {
@@ -381,7 +383,7 @@ void *TrainModelThread(void *id) {
       }
       // update params 
       // update l, lb
-      printf("0:%lf, %lf\n", z_error[0], o[0]);
+      printf("0:%f, %f\n", z_error[0], o[0]);
       if (label == NONE_idx) {
         putchar('c');
         putchar('\n');
@@ -389,21 +391,23 @@ void *TrainModelThread(void *id) {
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
           lb[i] += alpha / (l_size - 1) - f;
+          // if (0== i) printf("%lld, %f, %f, %f, %f, %f\n",i, z_error[0], f, sum_softmax, score_kl[0], score_kl[1]);
           for (a = 0; a < l_length; ++a) {
             z_error[a] += alpha / (l_size-1) - l[l1 + a] * f;
             l[l1 + a] += alpha / (l_size-1) - z[a] * f;
           }
+          // if (0== i) printf("%lld, %f\n",i, z_error[0]);
         } 
       } else {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
-        printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
+        // printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
         lb[label] += alpha  - f;
         for (a = 0; a < l_length; ++a){
           z_error[a] += l[l1 + a] * (alpha - f);
           l[l1 + a] += z[a] * (alpha - f) ;
         }
-        printf("%f\n", z_error[0]);
+        // printf("%f\n", z_error[0]);
         for (i = 0; i < l_size; ++i) if (i != NONE_idx && i != label) {
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
@@ -416,7 +420,7 @@ void *TrainModelThread(void *id) {
       }
       // update d, db
       // update ph1, ph2
-      printf("1:%lf, %lf\n", z_error[0], o[0]);
+      // printf("1:%f, %f\n", z_error[0], o[0]);
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
         j = cur_ins->supList[i].function_id;
         a = cur_ins->supList[i].label;
@@ -452,7 +456,7 @@ void *TrainModelThread(void *id) {
         }
       }
       // update o
-      printf("2:%lf, %lf\n", z_error[0], o[0]);
+      // printf("2:%f, %f\n", z_error[0], o[0]);
       for (a = 0; a < l_length; ++a) {
         l1 = a * c_length;
         for (b = 0; b < c_length; ++b) o[l1 + b] += z_error[a] * c_error[b];
@@ -618,6 +622,10 @@ int main(int argc, char **argv) {
     printf("\t\tSet max skip length between words; default is 10\n");
     printf("\t-sample <float>\n");
     printf("\t\tSet threshold for occurrence of words. Those that appear with higher frequency");
+    printf("\t-lambda1 <float>\n");
+    printf("\t\tthe value of lambda");
+    printf("\t-lambda2 <float>\n");
+    printf("\t\tthe value of lambda");
     printf(" in the training data will be randomly down-sampled; default is 0 (off), useful value is 1e-5\n");
     printf("\t-negative <int>\n");
     printf("\t\tNumber of negative examples; default is 5, common values are 5 - 10 (0 = not used)\n");
