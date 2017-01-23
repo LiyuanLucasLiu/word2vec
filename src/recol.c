@@ -167,9 +167,9 @@ void InitNet() {
   for (b = 0; b < l_size; ++b) for (a = 0; a < l_length; ++a)
     l[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length;
   for (b = 0; b < d_size; ++b) for (a = 0; a < l_length; ++a)
-    d[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / d_length; 
+    d[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length; 
   for (b = 0; b < l_length; ++b) for (a = 0; a < c_length; ++a)
-    o[b * c_length + a] = 0; 
+    o[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / c_length; 
 }
 
 void DestroyNet() {
@@ -360,33 +360,34 @@ void *TrainModelThread(void *id) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-        score_p[i] += f; //max
-        g += f;
+        // score_p[i] += f; //max
+        // g += f;
         score_kl[i] = exp(f);
         sum_softmax += score_kl[i];
       }
-      g /= (l_size - 1);
-      score_p[NONE_idx] += g + log(l_size-1); //max
-      g = log(sum_softmax);
-      for (i = 0; i < l_size; ++i) {
-        score_p[i] -= g; // max
-      }
+      // g /= (l_size - 1);
+      // score_p[NONE_idx] += g + log(l_size-1); //max
+      // g = log(sum_softmax);
+      // for (i = 0; i < l_size; ++i) {
+        // score_p[i] -= g; // max
+      // }
       f = 0.0; for (i = 0; i < l_size; ++i) f += score_n[i];
-      g = f - score_n[NONE_idx] + score_p[NONE_idx];
-      label = NONE_idx;
-      for (i = 0; i < l_size; ++i) {
+      // g = f - score_n[NONE_idx] + score_p[NONE_idx];
+      // label = NONE_idx;
+      g = 0;
+      label = -1;
+      for (i = 0; i < l_size; ++i) if (score_n[i] != 0) {
         h = f - score_n[i] + score_p[i];
-        if (h > g){
+        if (-1==label || h > g){
           label = i;
           g = h;
         }
       }
       // update params 
       // update l, lb
-      printf("0:%f, %f\n", z_error[0], o[0]);
+      // printf("0:%lld, %f, %f\n", label, z_error[0], z[0]);
       if (label == NONE_idx) {
-        putchar('c');
-        putchar('\n');
+        // printf("%lld\n", cur_id);
         for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
@@ -396,7 +397,7 @@ void *TrainModelThread(void *id) {
             z_error[a] += alpha / (l_size-1) - l[l1 + a] * f;
             l[l1 + a] += alpha / (l_size-1) - z[a] * f;
           }
-          // if (0== i) printf("%lld, %f\n",i, z_error[0]);
+          if (0== i) printf("%lld, %f, %f\n",cur_id, l[0], l[1]);
         } 
       } else {
         l1 = label * l_length;
@@ -407,7 +408,7 @@ void *TrainModelThread(void *id) {
           z_error[a] += l[l1 + a] * (alpha - f);
           l[l1 + a] += z[a] * (alpha - f) ;
         }
-        // printf("%f\n", z_error[0]);
+        printf("%f\n", z_error[0]);
         for (i = 0; i < l_size; ++i) if (i != NONE_idx && i != label) {
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
