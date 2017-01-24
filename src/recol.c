@@ -48,7 +48,7 @@ char train_file[MAX_STRING], output_file[MAX_STRING];
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 10, min_count = 5, num_threads = 1, min_reduce = 1;
+int binary = 1, debug_mode = 2, reSample = 10, min_count = 5, num_threads = 1, min_reduce = 1, infer_together=0;
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
 real lambda1 = 0.3, lambda2 = 0.3;
 long long ins_num = 181965, ins_count_actual = 0;
@@ -60,7 +60,7 @@ struct training_ins * data;
 real *c, *l, *d, *cneg, *db, *lb;
 real *o;
 real *ph1, *ph2;
-real *sigTable;
+real *sigTable, *expTable;
 clock_t start;
 
 int negative = 5;
@@ -162,8 +162,8 @@ void InitNet() {
   // getchar();
   for (b = 0; b < l_size; ++b) lb[b] = 0;
   for (b = 0; b < d_size; ++b) db[b] = 0;
-  for (b = 0; b < d_size; ++b) ph1[b] = 0.5;
-  for (b = 0; b < d_size; ++b) ph2[b] = 0.5;
+  for (b = 0; b < d_size; ++b) ph1[b] = 0.6;
+  for (b = 0; b < d_size; ++b) ph2[b] = 0.4;
   for (b = 0; b < l_size; ++b) for (a = 0; a < l_length; ++a)
     l[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length;
   for (b = 0; b < d_size; ++b) for (a = 0; a < l_length; ++a)
@@ -343,13 +343,14 @@ void *TrainModelThread(void *id) {
       }
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
         j = cur_ins->supList[i].function_id;
-        l1 = j * l_length; 
+        l1 = j * l_length;
         f = db[j]; 
         for (a = 0; a < l_length; ++a) f+= z[a] * d[l1 + a];
-        if (f > MAX_EXP) g = lambda2;
-        else if (f < -MAX_EXP) g = -lambda2;
-        else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))] * lambda2;
+        if (f > MAX_EXP) g = 1;
+        else if (f < -MAX_EXP) g = 0;
+        else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         a = cur_ins->supList[i].label;
+        // if (g > 1 || g < -1) printf("error in g, %f, %lld\n", g, i);
         sigmoidD[a] = g;
         score_p[a] += log(g * ph1[j] + (1 - g) * ph2[j]);
         score_n[a] += log(g * (1 - ph1[j]) + (1 - g) * (1 - ph2[j]));
@@ -360,24 +361,23 @@ void *TrainModelThread(void *id) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-        // score_p[i] += f; //max
-        // g += f;
+        // if (infer_together) score_p[i] += score_p[i] * f; //max
         if (f > MAX_EXP || f < -MAX_EXP) score_kl[i] = exp(f);
         else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         sum_softmax += score_kl[i];
       }
-      // g /= (l_size - 1);
-      // score_p[NONE_idx] += g + log(l_size-1); //max
-      // g = log(sum_softmax);
-      // for (i = 0; i < l_size; ++i) {
-        // score_p[i] -= g; // max
+      // if (infer_together) {
+      //   g = log(sum_softmax);
+      //   for (i = 0; i < l_size; ++i) {
+      //     score_p[i] -= score_p[i] * g; // max
+      //   }
       // }
       f = 0.0; for (i = 0; i < l_size; ++i) f += score_n[i];
       // g = f - score_n[NONE_idx] + score_p[NONE_idx];
       // label = NONE_idx;
       g = 0;
       label = -1;
-      for (i = 0; i < l_size; ++i) if (score_p[i] != 0) {
+      for (i = 0; i < l_size; ++i) if (score_p[i] != 0 || score_n[i] != 0) {
         h = f - score_n[i] + score_p[i];
         if (-1==label || h > g){
           label = i;
@@ -387,10 +387,10 @@ void *TrainModelThread(void *id) {
       // update params 
       // update l, lb
       if (-1 == label){
-        for (i = 0; i < l_size; ++i) printf("%lld, %f\n", i, score_p[i]);
+        for (i = 0; i < l_size; ++i) printf("-1: %lld, %f\n", i, score_p[i]);
         exit(1);
       }
-      // printf("0:%lld, %f, %f\n", label, z_error[0], z[0]);
+      printf("0:%lld, %f, %f\n", label, z_error[0], z[0]);
       // if (label == NONE_idx) {
       //   // printf("%lld\n", cur_id);
       //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
@@ -405,65 +405,71 @@ void *TrainModelThread(void *id) {
       //     if (0== i) printf("%lld, %f, %f\n",cur_id, l[0], l[1]);
       //   } 
       // } else 
-      {
-        l1 = label * l_length;
-        f = alpha * score_kl[label] / sum_softmax;
-        // printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-        lb[label] += alpha  - f;
-        for (a = 0; a < l_length; ++a){
-          z_error[a] += l[l1 + a] * (alpha - f);
-          l[l1 + a] += z[a] * (alpha - f) ;
-        }
-        // printf("%f\n", z_error[0]);
-        for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
-          l1 = i * l_length;
-          f = alpha * score_kl[i] / sum_softmax;
-          lb[i] -= f;
-          for (a = 0; a < l_length; ++a) {
-            z_error[a] -= l[l1 + a] * f;
-            l[l1 + a] -= z[a] * f;
-          }
+      // {
+      l1 = label * l_length;
+      f = alpha * score_kl[label] / sum_softmax;
+      // printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
+      lb[label] += alpha  - f;
+      for (a = 0; a < l_length; ++a){
+        z_error[a] += l[l1 + a] * (alpha - f);
+        l[l1 + a] += z[a] * (alpha - f) ;
+      }
+      // printf("%f\n", z_error[0]);
+      for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
+        l1 = i * l_length;
+        f = alpha * score_kl[i] / sum_softmax;
+        lb[i] -= f;
+        for (a = 0; a < l_length; ++a) {
+          z_error[a] -= l[l1 + a] * f;
+          l[l1 + a] -= z[a] * f;
         }
       }
+      // }
       // update d, db
       // update ph1, ph2
       // printf("1:%f, %f\n", z_error[0], o[0]);
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
         j = cur_ins->supList[i].function_id;
         a = cur_ins->supList[i].label;
-        f = log(sigmoidD[a] * ph1[j] + (1 - sigmoidD[a]) * ph2[j]);
+        f = sigmoidD[a] * ph1[j] + (1 - sigmoidD[a]) * ph2[j];
+        printf("%lld, %lld, %f, %f, %f, %f, %f \n", j, a, f, sigmoidD[a], ph1[j], ph2[j], sigmoidD[a] * ph1[j] + (1 - sigmoidD[a]) * ph2[j]);
         if (a == label) {
           //d, db
           g = alpha * lambda2 * (ph1[j] - ph2[j]) * sigmoidD[a] * (1- sigmoidD[a]) / f;
+          printf("ll: %f \n", g);
           l1 = j * l_length;
           db[j] += g;
           for (b = 0; b < l_length; ++b){
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += z[b] * g;
           }
+          printf("ll: %f \n", z_error[0]);
           //ph1, ph2
           ph1[j] += alpha * lambda2 * sigmoidD[a] / f;
-          ph1[j] = ph1[j] > 0 ? ph1[j] : 0;
-          ph1[j] = ph1[j] < 1 ? ph1[j] : 1;
           ph2[j] += alpha * lambda2 * (1 - sigmoidD[a]) / f;
-          ph2[j] = ph2[j] > 0 ? ph2[j] : 0;
-          ph2[j] = ph2[j] < 1 ? ph2[j] : 1;
         } else {
           //d, db
           g = alpha * lambda2 * (ph2[j] - ph1[j]) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
+          printf("%f \n", g);
           l1 = j * l_length;
           db[j] += g;
           for (b = 0; b< l_length; ++b) {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += z[b] * g;
           }
+          printf("%f \n", z_error[0]);
           //ph1, ph2
           ph1[j] -= alpha * lambda2 * sigmoidD[a] / f;
           ph2[j] -= alpha * lambda2 * (1 - sigmoidD[a]) / f;
         }
+        ph1[j] = ph1[j] > 0 ? ph1[j] : 0;
+        ph1[j] = ph1[j] < 1 ? ph1[j] : 1;
+        ph2[j] = ph2[j] > 0 ? ph2[j] : 0;
+        ph2[j] = ph2[j] < 1 ? ph2[j] : 1;
       }
+
       // update o
-      // printf("2:%f, %f\n", z_error[0], o[0]);
+      printf("2:%f, %f\n", z_error[0], o[0]);
       for (a = 0; a < l_length; ++a) {
         l1 = a * c_length;
         for (b = 0; b < c_length; ++b) o[l1 + b] += z_error[a] * c_error[b];
@@ -628,12 +634,11 @@ int main(int argc, char **argv) {
     printf("\t\tSet size of label vectors; default is 400\n");
     printf("\t-reSample <int>\n");
     printf("\t\tSet max skip length between words; default is 10\n");
-    printf("\t-sample <float>\n");
-    printf("\t\tSet threshold for occurrence of words. Those that appear with higher frequency");
     printf("\t-lambda1 <float>\n");
     printf("\t\tthe value of lambda");
     printf("\t-lambda2 <float>\n");
     printf("\t\tthe value of lambda");
+    printf("\t-sample <float>\n");
     printf(" in the training data will be randomly down-sampled; default is 0 (off), useful value is 1e-5\n");
     printf("\t-negative <int>\n");
     printf("\t\tNumber of negative examples; default is 5, common values are 5 - 10 (0 = not used)\n");
@@ -647,6 +652,8 @@ int main(int argc, char **argv) {
     printf("\t\tSet the debug mode (default = 2 = more info during training)\n");
     printf("\t-binary <int>\n");
     printf("\t\tSave the resulting vectors in binary moded; default is 0 (off)\n");
+    printf("\t-infer_together <int>\n");
+    printf("\t\tInfering the true label with all parts of obj func\n");
     printf("\t-instances <int>\n");
     printf("\t\tthe number of instances in training set\n");
     printf("\t-iter <file>\n");
@@ -675,6 +682,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-infer_together", argc, argv)) > 0) infer_together = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
   // if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
   // else {fprintf(stderr, "none_idx is required" );}
