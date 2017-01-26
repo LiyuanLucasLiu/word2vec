@@ -48,7 +48,7 @@ char test_file[MAX_STRING], model_file[MAX_STRING], test_result[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 // long long  *cCount;
-int binary = 1, debug_mode = 2;
+int binary = 1, debug_mode = 1;
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
 // real lambda1 = 0.3, lambda2 = 0.3;
 long long ins_num = 2111, ins_count_actual = 0;
@@ -179,7 +179,7 @@ void TestModel() {
         g = f;
         b = j;
       }
-      printf("%d, %d, %f, %f, %f, %f\n", i, j, f, z[0], l[l1], lb[j]);
+      if (debug_mode > 1) printf("%d, %d, %f, %f, %f, %f\n", i, j, f, z[0], l[l1], lb[j]);
     }
     predicted_label[i] = b;
     correct += (b == cur_ins->supList[0].label);
@@ -301,6 +301,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(test_result, argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
 
   printf("Loading training file %s\n", test_file);
   LoadTestingData();

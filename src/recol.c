@@ -547,32 +547,24 @@ void SaveModel() {
   if (binary) {
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(c[b * c_length + a], fo)
-      fprintf(fo, "\n");
     }
     for (b = 0; b < l_size; ++b) BWRITE(lb[b], fo)
-    fprintf(fo, "\n"); 
     for (b = 0; b < l_size; ++b) {
       for (a = 0; a < l_length; ++a) BWRITE(l[b * l_length + a], fo)
-      fprintf(fo, "\n");
     }
     for (b = 0; b < l_length; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(o[b * c_length + a], fo)
-      fprintf(fo, "\n");
     }
     BWRITE(lambda1, fo)
     BWRITE(lambda2, fo)
     BWRITE(ph1, fo)
     BWRITE(ph2, fo)
-    fprintf(fo, "\n");
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
-      fprintf(fo, "\n");
     }
     for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
-    fprintf(fo, "\n");
     for (b = 0; b < d_size; ++b) {
       for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
-      fprintf(fo, "\n");
     }
   } else {
     for (b = 0; b < c_size; ++b) {
