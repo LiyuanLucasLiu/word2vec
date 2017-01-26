@@ -16,122 +16,301 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <stdlib.h> // mac os x
-#include <ctype.h>
+#include <pthread.h>
 
-const long long max_size = 2000;         // max length of strings
-const long long N = 1;                   // number of closest words
-const long long max_w = 50;              // max length of vocabulary entries
+#define MAX_STRING 100
+#define EXP_TABLE_SIZE 1200
+#define MAX_EXP 6
+#define MAX_SENTENCE_LENGTH 1000
+#define MAX_CODE_LENGTH 40
+#define FREE(x) if (x != NULL) {free(x);}
+#define CHECKNULL(x) if (x == NULL) {printf("Memory allocation failed\n"); exit(1);}
+#define NRAND next_random = next_random * (unsigned long long)25214903917 + 11;
+#define BREAD(x,f) fread(&x, sizeof(float), 1, f);
+#define SREAD(x,f) fscanf(f, "%f ", &x);
 
-int main(int argc, char **argv)
-{
-  FILE *f;
-  char st1[max_size], st2[max_size], st3[max_size], st4[max_size], bestw[N][max_size], file_name[max_size], ch;
-  float dist, len, bestd[N], vec[max_size];
-  long long words, size, a, b, c, d, b1, b2, b3, threshold = 0;
-  float *M;
-  char *vocab;
-  int TCN, CCN = 0, TACN = 0, CACN = 0, SECN = 0, SYCN = 0, SEAC = 0, SYAC = 0, QID = 0, TQ = 0, TQS = 0;
-  if (argc < 2) {
-    printf("Usage: ./compute-accuracy <FILE> <threshold>\nwhere FILE contains word projections, and threshold is used to reduce vocabulary of the model for fast approximate evaluation (0 = off, otherwise typical value is 30000)\n");
+typedef float real;                    // Precision of float numbers
+
+struct supervision {
+  long long function_id;
+  long long label;
+};
+
+struct training_ins {
+  long long id;
+  long long c_num;
+  long long *cList;
+  long long sup_num;
+  struct supervision *supList;
+};
+
+char test_file[MAX_STRING], model_file[MAX_STRING], test_result[MAX_STRING];
+// char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
+// struct vocab_word *vocab;
+// long long  *cCount;
+int binary = 1, debug_mode = 2;
+long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
+// real lambda1 = 0.3, lambda2 = 0.3;
+long long ins_num = 2111, ins_count_actual = 0;
+// long long iters = 10;
+// long print_every = 1000;
+// real alpha = 0.025, starting_alpha, sample = 1e-4;
+
+struct training_ins * data;
+long long * predicted_label;
+real *c, *l, *lb;
+real *o;
+// real *sigTable, *expTable;
+
+clock_t start;
+
+// Reads a single word from a file, assuming comma + space + tab + EOL to be word boundaries
+// 0: EOF, 1: comma, 2: tab, 3: \n, 4: space
+inline int ReadWord(long long *word, FILE *fin) {
+  // putchar('c');
+  char ch;
+  // printf("%lld\n", *word);
+  int sgn = 1;
+  *word = 0;
+  // printf("%lld\n", *word);
+  while (!feof(fin)) {
+    ch = fgetc(fin);
+    // putchar(ch);
+    switch (ch) {
+      case ',':
+        return 1;
+      case '\t':
+        return 2;
+      case '\n':
+        return 3;
+      case ' ':
+        return 4;
+      case '-':
+        sgn = sgn * -1;
+        break;
+      default:
+        *word = *word * 10 + ch - '0';
+    }// Truncate too long words
+  }
+  *word = *word * sgn;
+  return 0;
+}
+
+void DestroyNet() {
+  FREE(lb)
+  FREE(l)
+  FREE(c)
+  FREE(o)
+}
+
+void LoadTestingData(){
+  FILE *fin = fopen(test_file, "r");
+  if (fin == NULL) {
+    fprintf(stderr, "no such file: %s\n", test_file);
+    exit(1);
+  }
+  printf("curInsCount: %lld\n", ins_num);
+  long long curInsCount = ins_num, a, b;
+  
+  data = (struct training_ins *) calloc(ins_num, sizeof(struct training_ins));
+  predicted_label = (long long *) calloc(ins_num, sizeof(long long));
+  while(curInsCount--){
+    // printf("curInsCount: %lld\n", curInsCount);
+    data[curInsCount].id = 1;
+    // printf("curInsCount: %lld\n", data[curInsCount].id);
+    ReadWord(&data[curInsCount].id, fin);
+    // putchar('a');
+    ReadWord(&data[curInsCount].c_num, fin);
+    ReadWord(&data[curInsCount].sup_num, fin);
+    data[curInsCount].cList = (long long *) calloc(data[curInsCount].c_num, sizeof(long long));
+    data[curInsCount].supList = (struct supervision *) calloc(data[curInsCount].sup_num, sizeof(struct supervision));
+    // printf("%lld, %lld, %lld\n", data[curInsCount].id, data[curInsCount].c_num, data[curInsCount].sup_num);
+
+    for (a = data[curInsCount].c_num; a; --a) {
+      ReadWord(&b, fin);
+      if (b > c_size) c_size = b;
+      data[curInsCount].cList[a-1] = b;
+    }
+    for (a = data[curInsCount].sup_num; a; --a) {
+      ReadWord(&b, fin);
+      if (b > l_size) l_size = b;
+      data[curInsCount].supList[a-1].label = b;
+      ReadWord(&b, fin);
+      if (b > d_size) d_size = b;
+      data[curInsCount].supList[a-1].function_id = b;
+    }
+  }
+  c_size++; d_size++; l_size++;
+  if ((debug_mode > 1)) {
+    printf("load Done\n");
+    printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
+  }
+}
+
+void TestModel() {
+  int i, j, a, b;
+  long long l1;
+  real f, g;
+  real *cs = (real *) calloc(c_length, sizeof(real));
+  real *z = (real *) calloc(l_length, sizeof(real));
+  long long correct = 0;
+  for (i = 0; i < ins_num; ++i){
+    struct training_ins * cur_ins = data+ i;
+    //calculate z;
+    for (j = 0; j < c_length; ++j)
+      cs[j] = 0;
+    for (a = 0; a < cur_ins->c_num; ++a) {
+      l1 = c_length * cur_ins->cList[a];
+      for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+    }
+    for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+    for (a = 0; a < l_length; ++a){
+      z[a] = 0;
+      l1 = a * c_length;
+      for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
+    }
+
+    b = -1; g = 0;
+    for (j = 0; j < l_size; ++j) {
+      f = lb[j];
+      l1 = j * l_length;
+      for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+      if (-1 == b || f > g){
+        g = f;
+        b = j;
+      }
+      printf("%d, %d, %f, %f, %f, %f\n", i, j, f, z[0], l[l1], lb[j]);
+    }
+    predicted_label[i] = b;
+    correct += (b == cur_ins->supList[0].label);
+  }
+  printf("totally %lld instances, correct %lld instances, accuracy %f", ins_num, correct, (real) correct / ins_num * 100);
+}
+
+void SaveResult() {
+  FILE *fout = fopen(test_result, "w");
+  int i;
+  for (i = 0; i < ins_num; ++i) 
+    fprintf(fout, "%lld,%lld\n", data[i].supList[0].label, predicted_label[i]); 
+  fclose(fout);
+}
+void ReadModel() {  
+  FILE *fi = fopen(model_file, "rb");
+  long long a, b;
+  if (fi == NULL) {
+    fprintf(stderr, "Cannot open %s: permission denied\n", model_file);
+    exit(1);
+  }
+  fscanf(fi, "%lld %lld %lld %lld %lld\n", &c_size, &c_length, &l_size, &l_length, &d_size);//, NONE_idx);
+  a = posix_memalign((void **)&c, 128, (long long)c_size * c_length * sizeof(real));
+  CHECKNULL(c)
+  a = posix_memalign((void **)&l, 128, (long long)l_size * l_length * sizeof(real));
+  CHECKNULL(l)
+  a = posix_memalign((void **)&o, 128, (long long)c_length * l_length * sizeof(real));
+  CHECKNULL(o)
+  a = posix_memalign((void **)&lb, 128, (long long)l_size * sizeof(real));
+  CHECKNULL(lb)
+  if (binary) {
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) BREAD(c[b * c_length + a], fi)
+    }
+    for (b = 0; b < l_size; ++b) BREAD(lb[b], fi)
+    for (b = 0; b < l_size; ++b) {
+      for (a = 0; a < l_length; ++a) BREAD(l[b * l_length + a], fi)
+    }
+    for (b = 0; b < l_length; ++b) {
+      for (a = 0; a < c_length; ++a) BREAD(o[b * c_length + a], fi)
+    }
+  } else {
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) SREAD(c[b * c_length + a], fi)
+    }
+    for (b = 0; b < l_size; ++b) SREAD(lb[b], fi)
+    for (b = 0; b < l_size; ++b) {
+      for (a = 0; a < l_length; ++a) SREAD(l[b * l_length + a], fi)
+    }
+    for (b = 0; b < l_length; ++b) {
+      for (a = 0; a < c_length; ++a) SREAD(o[b * c_length + a], fi)
+    }
+  }
+  fclose(fi);
+}
+
+int ArgPos(char *str, int argc, char **argv) {
+  int a;
+  for (a = 1; a < argc; a++) if (!strcmp(str, argv[a])) {
+    if (a == argc - 1) {
+      printf("Argument missing for %s\n", str);
+      exit(1);
+    }
+    return a;
+  }
+  return -1;
+}
+
+int main(int argc, char **argv) {
+  int i;
+  if (argc == 1) {
+    printf("WORD VECTOR estimation toolkit v 0.1b\n\n");
+    printf("Options:\n");
+    printf("Parameters for training:\n");
+    printf("\t-train <file>\n");
+    printf("\t\tUse text data from <file> to train the model\n");
+    printf("\t-output <file>\n");
+    printf("\t\tUse <file> to save the model\n");
+    printf("\t-cleng <int>\n");
+    printf("\t\tSet size of word vectors; default is 100\n");
+    printf("\t-lleng <int>\n");
+    printf("\t\tSet size of label vectors; default is 400\n");
+    printf("\t-reSample <int>\n");
+    printf("\t\tSet max skip length between words; default is 10\n");
+    printf("\t-lambda1 <float>\n");
+    printf("\t\tthe value of lambda");
+    printf("\t-lambda2 <float>\n");
+    printf("\t\tthe value of lambda");
+    printf("\t-sample <float>\n");
+    printf(" in the training data will be randomly down-sampled; default is 0 (off), useful value is 1e-5\n");
+    printf("\t-negative <int>\n");
+    printf("\t\tNumber of negative examples; default is 5, common values are 5 - 10 (0 = not used)\n");
+    printf("\t-threads <int>\n");
+    printf("\t\tUse <int> threads (default 10)\n");
+    printf("\t-min-count <int>\n");
+    printf("\t\tThis will discard words that appear less than <int> times; default is 5\n");
+    printf("\t-alpha <float>\n");
+    printf("\t\tSet the starting learning rate; default is 0.025\n");
+    printf("\t-debug <int>\n");
+    printf("\t\tSet the debug mode (default = 2 = more info during training)\n");
+    printf("\t-binary <int>\n");
+    printf("\t\tSave the resulting vectors in binary moded; default is 0 (off)\n");
+    printf("\t-infer_together <int>\n");
+    printf("\t\tInfering the true label with all parts of obj func\n");
+    printf("\t-instances <int>\n");
+    printf("\t\tthe number of instances in training set\n");
+    printf("\t-iter <file>\n");
+    printf("\t\tnumber of iters; default is 10\n");
+    printf("\t-alpha_update_every <file>\n");
+    printf("\t\tprint every # of instances; default is 1000\n");
+    // printf("\t-none_idx <file>\n");
+    // printf("\t\tthe index of None Type\n");
+    printf("\nExamples:\n");
+    printf("./recol -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.model\n\n");//-none_idx 5 
     return 0;
   }
-  strcpy(file_name, argv[1]);
-  if (argc > 2) threshold = atoi(argv[2]);
-  f = fopen(file_name, "rb");
-  if (f == NULL) {
-    printf("Input file not found\n");
-    return -1;
-  }
-  fscanf(f, "%lld", &words);
-  if (threshold) if (words > threshold) words = threshold;
-  fscanf(f, "%lld", &size);
-  vocab = (char *)malloc(words * max_w * sizeof(char));
-  M = (float *)malloc(words * size * sizeof(float));
-  if (M == NULL) {
-    printf("Cannot allocate memory: %lld MB\n", words * size * sizeof(float) / 1048576);
-    return -1;
-  }
-  for (b = 0; b < words; b++) {
-    fscanf(f, "%s%c", &vocab[b * max_w], &ch);
-    for (a = 0; a < max_w; a++) vocab[b * max_w + a] = toupper(vocab[b * max_w + a]);
-    for (a = 0; a < size; a++) fread(&M[a + b * size], sizeof(float), 1, f);
-    len = 0;
-    for (a = 0; a < size; a++) len += M[a + b * size] * M[a + b * size];
-    len = sqrt(len);
-    for (a = 0; a < size; a++) M[a + b * size] /= len;
-  }
-  fclose(f);
-  TCN = 0;
-  while (1) {
-    for (a = 0; a < N; a++) bestd[a] = 0;
-    for (a = 0; a < N; a++) bestw[a][0] = 0;
-    scanf("%s", st1);
-    for (a = 0; a < strlen(st1); a++) st1[a] = toupper(st1[a]);
-    if ((!strcmp(st1, ":")) || (!strcmp(st1, "EXIT")) || feof(stdin)) {
-      if (TCN == 0) TCN = 1;
-      if (QID != 0) {
-        printf("ACCURACY TOP1: %.2f %%  (%d / %d)\n", CCN / (float)TCN * 100, CCN, TCN);
-        printf("Total accuracy: %.2f %%   Semantic accuracy: %.2f %%   Syntactic accuracy: %.2f %% \n", CACN / (float)TACN * 100, SEAC / (float)SECN * 100, SYAC / (float)SYCN * 100);
-      }
-      QID++;
-      scanf("%s", st1);
-      if (feof(stdin)) break;
-      printf("%s:\n", st1);
-      TCN = 0;
-      CCN = 0;
-      continue;
-    }
-    if (!strcmp(st1, "EXIT")) break;
-    scanf("%s", st2);
-    for (a = 0; a < strlen(st2); a++) st2[a] = toupper(st2[a]);
-    scanf("%s", st3);
-    for (a = 0; a<strlen(st3); a++) st3[a] = toupper(st3[a]);
-    scanf("%s", st4);
-    for (a = 0; a < strlen(st4); a++) st4[a] = toupper(st4[a]);
-    for (b = 0; b < words; b++) if (!strcmp(&vocab[b * max_w], st1)) break;
-    b1 = b;
-    for (b = 0; b < words; b++) if (!strcmp(&vocab[b * max_w], st2)) break;
-    b2 = b;
-    for (b = 0; b < words; b++) if (!strcmp(&vocab[b * max_w], st3)) break;
-    b3 = b;
-    for (a = 0; a < N; a++) bestd[a] = 0;
-    for (a = 0; a < N; a++) bestw[a][0] = 0;
-    TQ++;
-    if (b1 == words) continue;
-    if (b2 == words) continue;
-    if (b3 == words) continue;
-    for (b = 0; b < words; b++) if (!strcmp(&vocab[b * max_w], st4)) break;
-    if (b == words) continue;
-    for (a = 0; a < size; a++) vec[a] = (M[a + b2 * size] - M[a + b1 * size]) + M[a + b3 * size];
-    TQS++;
-    for (c = 0; c < words; c++) {
-      if (c == b1) continue;
-      if (c == b2) continue;
-      if (c == b3) continue;
-      dist = 0;
-      for (a = 0; a < size; a++) dist += vec[a] * M[a + c * size];
-      for (a = 0; a < N; a++) {
-        if (dist > bestd[a]) {
-          for (d = N - 1; d > a; d--) {
-            bestd[d] = bestd[d - 1];
-            strcpy(bestw[d], bestw[d - 1]);
-          }
-          bestd[a] = dist;
-          strcpy(bestw[a], &vocab[c * max_w]);
-          break;
-        }
-      }
-    }
-    if (!strcmp(st4, bestw[0])) {
-      CCN++;
-      CACN++;
-      if (QID <= 5) SEAC++; else SYAC++;
-    }
-    if (QID <= 5) SECN++; else SYCN++;
-    TCN++;
-    TACN++;
-  }
-  printf("Questions seen / total: %d %d   %.2f %% \n", TQS, TQ, TQS/(float)TQ*100);
+  if ((i = ArgPos((char *)"-test", argc, argv)) > 0) strcpy(test_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-model", argc, argv)) > 0) strcpy(model_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(test_result, argv[i + 1]);
+  if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
+
+  printf("Loading training file %s\n", test_file);
+  LoadTestingData();
+  printf("Loading Model: %s\n", model_file);
+  ReadModel();
+  printf("start Testing \n ");
+  TestModel();
+  printf("\nSaving to %s\n", test_result);
+  SaveResult();
+  printf("releasing memory");
+  DestroyNet();
   return 0;
 }

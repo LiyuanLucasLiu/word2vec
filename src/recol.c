@@ -45,10 +45,10 @@ struct training_ins {
 };
 
 char train_file[MAX_STRING], output_file[MAX_STRING];
-char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
+// char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 10, min_count = 5, num_threads = 1, min_reduce = 1, infer_together=0;
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together=0;
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
 real lambda1 = 0.3, lambda2 = 0.3;
 long long ins_num = 181965, ins_count_actual = 0;
@@ -59,7 +59,7 @@ real alpha = 0.025, starting_alpha, sample = 1e-4;
 struct training_ins * data;
 real *c, *l, *d, *cneg, *db, *lb;
 real *o;
-real *ph1, *ph2;
+real ph1, ph2;
 real *sigTable, *expTable;
 clock_t start;
 
@@ -149,10 +149,12 @@ void InitNet() {
   cCount = (long long *) calloc(c_size,  sizeof(long long));
   CHECKNULL(cCount)
   memset(cCount, 0, c_size);
-  ph1 = (real*) calloc(d_size, sizeof(real));
-  CHECKNULL(ph1)
-  ph2 = (real*) calloc(d_size, sizeof(real));
-  CHECKNULL(ph2)
+  // ph1 = (real*) calloc(d_size, sizeof(real));
+  // CHECKNULL(ph1)
+  // ph2 = (real*) calloc(d_size, sizeof(real));
+  // CHECKNULL(ph2)
+  ph1 = 1;
+  ph2 = 1.0/l_size;
 
   for (b = 0; b < c_size; ++b) for (a = 0; a < c_length; ++a) {
     c[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / c_length;
@@ -162,8 +164,8 @@ void InitNet() {
   // getchar();
   for (b = 0; b < l_size; ++b) lb[b] = 0;
   for (b = 0; b < d_size; ++b) db[b] = 0;
-  for (b = 0; b < d_size; ++b) ph1[b] = 0.6;
-  for (b = 0; b < d_size; ++b) ph2[b] = 0.4;
+  // for (b = 0; b < d_size; ++b) ph1[b] = 0.6;
+  // for (b = 0; b < d_size; ++b) ph2[b] = 0.4;
   for (b = 0; b < l_size; ++b) for (a = 0; a < l_length; ++a)
     l[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length;
   for (b = 0; b < d_size; ++b) for (a = 0; a < l_length; ++a)
@@ -344,7 +346,7 @@ void *TrainModelThread(void *id) {
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
         j = cur_ins->supList[i].function_id;
         l1 = j * l_length;
-        f = db[j]; 
+        f = db[j];
         for (a = 0; a < l_length; ++a) f+= z[a] * d[l1 + a];
         if (f > MAX_EXP) g = 1;
         else if (f < -MAX_EXP) g = 0;
@@ -352,8 +354,8 @@ void *TrainModelThread(void *id) {
         a = cur_ins->supList[i].label;
         // if (g > 1 || g < -1) printf("error in g, %f, %lld\n", g, i);
         sigmoidD[a] = g;
-        score_p[a] += log(g * ph1[j] + (1 - g) * ph2[j]);
-        score_n[a] += log(g * (1 - ph1[j]) + (1 - g) * (1 - ph2[j]));
+        score_p[a] += log(g * ph1 + (1 - g) * ph2);
+        score_n[a] += log(g * (1 - ph1) + (1 - g) * (1 - ph2));
       }
       sum_softmax = 0.0;
       g = 0.0;
@@ -361,10 +363,28 @@ void *TrainModelThread(void *id) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+
         // if (infer_together) score_p[i] += score_p[i] * f; //max
         if (f > MAX_EXP || f < -MAX_EXP) score_kl[i] = exp(f);
         else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         sum_softmax += score_kl[i];
+      }
+      f = 0; g = 0;
+      for (i = 0; i < l_size; ++i) {
+        if (score_kl[i] > f) {
+          g = f;
+          f = score_kl[i];
+        } else if (score_kl[i] > g) {
+          g = score_kl[i];
+        }
+      }
+      if (f - g > 0.5 * sum_softmax) {
+        sum_softmax = 0;
+        for (i = 0; i < l_size; ++i) {
+          score_kl[i] = (f == score_kl[i]);
+          sum_softmax += score_kl[i];
+        }
+        if (debug_mode > 2) printf("mod ss: %f\n", sum_softmax);
       }
       // if (infer_together) {
       //   g = log(sum_softmax);
@@ -390,25 +410,18 @@ void *TrainModelThread(void *id) {
         for (i = 0; i < l_size; ++i) printf("-1: %lld, %f\n", i, score_p[i]);
         exit(1);
       }
-      printf("0:%lld, %f, %f\n", label, z_error[0], z[0]);
-      // if (label == NONE_idx) {
-      //   // printf("%lld\n", cur_id);
-      //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
-      //     l1 = i * l_length;
-      //     f = alpha * score_kl[i] / sum_softmax;
-      //     lb[i] += alpha / (l_size - 1) - f;
-      //     // if (0== i) printf("%lld, %f, %f, %f, %f, %f\n",i, z_error[0], f, sum_softmax, score_kl[0], score_kl[1]);
-      //     for (a = 0; a < l_length; ++a) {
-      //       z_error[a] += alpha / (l_size-1) - l[l1 + a] * f;
-      //       l[l1 + a] += alpha / (l_size-1) - z[a] * f;
-      //     }
-      //     if (0== i) printf("%lld, %f, %f\n",cur_id, l[0], l[1]);
-      //   } 
-      // } else 
-      // {
+
+      if(debug_mode > 2){
+        printf("%lld, %lld:", label, cur_ins->sup_num);
+        for (i = 0; i < cur_ins->sup_num; ++i){
+          printf("(%lld, %lld);", cur_ins->supList[i].function_id, cur_ins->supList[i].label);
+        }
+        putchar('\n');
+      }
+
       l1 = label * l_length;
       f = alpha * score_kl[label] / sum_softmax;
-      // printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
+      if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
       lb[label] += alpha  - f;
       for (a = 0; a < l_length; ++a){
         z_error[a] += l[l1 + a] * (alpha - f);
@@ -427,49 +440,42 @@ void *TrainModelThread(void *id) {
       // }
       // update d, db
       // update ph1, ph2
-      // printf("1:%f, %f\n", z_error[0], o[0]);
+      if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
         j = cur_ins->supList[i].function_id;
         a = cur_ins->supList[i].label;
-        f = sigmoidD[a] * ph1[j] + (1 - sigmoidD[a]) * ph2[j];
-        printf("%lld, %lld, %f, %f, %f, %f, %f \n", j, a, f, sigmoidD[a], ph1[j], ph2[j], sigmoidD[a] * ph1[j] + (1 - sigmoidD[a]) * ph2[j]);
+        f = sigmoidD[a] * ph1 + (1 - sigmoidD[a]) * ph2;
+        if (debug_mode > 2) printf("%lld, %lld, %f, %f, %f, %f, %f \n", j, a, f, sigmoidD[a], ph1, ph2, sigmoidD[a] * ph1 + (1 - sigmoidD[a]) * ph2);
         if (a == label) {
           //d, db
-          g = alpha * lambda2 * (ph1[j] - ph2[j]) * sigmoidD[a] * (1- sigmoidD[a]) / f;
-          printf("ll: %f \n", g);
+          g = alpha * lambda2 * (ph1 - ph2) * sigmoidD[a] * (1- sigmoidD[a]) / f;
+          // printf("ll: %f \n", g);
           l1 = j * l_length;
           db[j] += g;
           for (b = 0; b < l_length; ++b){
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += z[b] * g;
           }
-          printf("ll: %f \n", z_error[0]);
+          // printf("ll: %f \n", z_error[0]);
           //ph1, ph2
-          ph1[j] += alpha * lambda2 * sigmoidD[a] / f;
-          ph2[j] += alpha * lambda2 * (1 - sigmoidD[a]) / f;
+          // ph1[j] += alpha * lambda2 * sigmoidD[a] / f;
+          // ph2[j] += alpha * lambda2 * (1 - sigmoidD[a]) / f;
         } else {
           //d, db
-          g = alpha * lambda2 * (ph2[j] - ph1[j]) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
-          printf("%f \n", g);
+          g = alpha * lambda2 * (ph2 - ph1) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
+          // printf("%f \n", g);
           l1 = j * l_length;
           db[j] += g;
           for (b = 0; b< l_length; ++b) {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += z[b] * g;
           }
-          printf("%f \n", z_error[0]);
-          //ph1, ph2
-          ph1[j] -= alpha * lambda2 * sigmoidD[a] / f;
-          ph2[j] -= alpha * lambda2 * (1 - sigmoidD[a]) / f;
+          // printf("%f \n", z_error[0]);
         }
-        ph1[j] = ph1[j] > 0 ? ph1[j] : 0;
-        ph1[j] = ph1[j] < 1 ? ph1[j] : 1;
-        ph2[j] = ph2[j] > 0 ? ph2[j] : 0;
-        ph2[j] = ph2[j] < 1 ? ph2[j] : 1;
       }
 
       // update o
-      printf("2:%f, %f\n", z_error[0], o[0]);
+      if (debug_mode > 2) printf("2:%f, %f\n", z_error[0], o[0]);
       for (a = 0; a < l_length; ++a) {
         l1 = a * c_length;
         for (b = 0; b < c_length; ++b) o[l1 + b] += z_error[a] * c_error[b];
@@ -539,67 +545,63 @@ void SaveModel() {
   }
   fprintf(fo, "%lld %lld %lld %lld %lld\n", c_size, c_length, l_size, l_length, d_size);//, NONE_idx);
   if (binary) {
-    BWRITE(lambda1, fo)
-    BWRITE(lambda2, fo)
-    fprintf(fo, "\n");
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(c[b * c_length + a], fo)
       fprintf(fo, "\n");
     }
-    for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
-      fprintf(fo, "\n");
-    }
     for (b = 0; b < l_size; ++b) BWRITE(lb[b], fo)
     fprintf(fo, "\n"); 
-    for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
-    fprintf(fo, "\n");
-    for (b = 0; b < d_size; ++b) BWRITE(ph1[b], fo)
-    fprintf(fo, "\n");
-    for (b = 0; b < d_size; ++b) BWRITE(ph2[b], fo)
-    fprintf(fo, "\n");
     for (b = 0; b < l_size; ++b) {
       for (a = 0; a < l_length; ++a) BWRITE(l[b * l_length + a], fo)
-      fprintf(fo, "\n");
-    }
-    for (b = 0; b < d_size; ++b) {
-      for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
       fprintf(fo, "\n");
     }
     for (b = 0; b < l_length; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(o[b * c_length + a], fo)
       fprintf(fo, "\n");
     }
-  } else {
-    SWRITE(lambda1, fo)
-    SWRITE(lambda2, fo)
+    BWRITE(lambda1, fo)
+    BWRITE(lambda2, fo)
+    BWRITE(ph1, fo)
+    BWRITE(ph2, fo)
     fprintf(fo, "\n");
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) {
+      for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
+      fprintf(fo, "\n");
+    }
+  } else {
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) SWRITE(c[b * c_length + a], fo)
       fprintf(fo, "\n");
     }
-    for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
-      fprintf(fo, "\n");
-    }
     for (b = 0; b < l_size; ++b) SWRITE(lb[b], fo)
     fprintf(fo, "\n"); 
-    for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
-    fprintf(fo, "\n");
-    for (b = 0; b < d_size; ++b) SWRITE(ph1[b], fo)
-    fprintf(fo, "\n");
-    for (b = 0; b < d_size; ++b) SWRITE(ph2[b], fo)
-    fprintf(fo, "\n");
     for (b = 0; b < l_size; ++b) {
       for (a = 0; a < l_length; ++a) SWRITE(l[b * l_length + a], fo)
       fprintf(fo, "\n");
     }
-    for (b = 0; b < d_size; ++b) {
-      for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
-      fprintf(fo, "\n");
-    }
     for (b = 0; b < l_length; ++b) {
       for (a = 0; a < c_length; ++a) SWRITE(o[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    SWRITE(lambda1, fo)
+    SWRITE(lambda2, fo)
+    SWRITE(ph1, fo)
+    SWRITE(ph2, fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < c_size; ++b) {
+      for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
+      fprintf(fo, "\n");
+    }
+    for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
+    fprintf(fo, "\n");
+    for (b = 0; b < d_size; ++b) {
+      for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
       fprintf(fo, "\n");
     }
   }
@@ -667,8 +669,8 @@ int main(int argc, char **argv) {
     return 0;
   }
   output_file[0] = 0;
-  save_vocab_file[0] = 0;
-  read_vocab_file[0] = 0;
+  // save_vocab_file[0] = 0;
+  // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lleng", argc, argv)) > 0) l_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);

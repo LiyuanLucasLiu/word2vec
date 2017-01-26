@@ -6,10 +6,12 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops 
 
-all: recol
+all: recol compute-accuracy
 
 recol : recol.c
 	$(CC) recol.c -o ${BIN_DIR}/recol $(CFLAGS) -g
+compute-accuracy : compute-accuracy.c
+	$(CC) compute-accuracy.c -o ${BIN_DIR}/compute-accuracy $(CFLAGS) -g
 
 clean:
 	pushd ${BIN_DIR} && rm -rf recol; popd
