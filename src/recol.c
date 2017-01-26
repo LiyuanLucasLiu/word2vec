@@ -28,6 +28,7 @@
 #define NRAND next_random = next_random * (unsigned long long)25214903917 + 11;
 #define BWRITE(x,f) fwrite(&x , sizeof(real), 1, f);
 #define SWRITE(x,f) fprintf(f, "%lf ", x);
+#define GCLIP(x) ((grad = x), (grad > grad_clip ? grad_clip : (grad < -grad_clip ? -grad_clip : grad)))
 
 typedef float real;                    // Precision of float numbers
 
@@ -50,11 +51,12 @@ char train_file[MAX_STRING], output_file[MAX_STRING];
 long long  *cCount;
 int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, special_none = 0;
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx;
-real lambda1 = 0.3, lambda2 = 0.3;
+real lambda1 = 0.3, lambda2 = 0.3, lambda3 = 0.3;
 long long ins_num = 181965, ins_count_actual = 0;
 long long iters = 10;
 long print_every = 1000;
 real alpha = 0.025, starting_alpha, sample = 1e-4;
+real grad_clip = 5, grad;
 
 struct training_ins * data;
 real *c, *l, *d, *cneg, *db, *lb;
@@ -233,7 +235,7 @@ void *TrainModelThread(void *id) {
   long long cur_iter = 0, end_id = ((long long)id+1) * ins_num / num_threads;
   long long cur_id, last_id;
   clock_t now;
-  long long a, b, i, j, l1, l2;
+  long long a, b, i, j, l1, l2 = 0;
   real f, g, h;
   long long target, label;
   struct training_ins *cur_ins;
@@ -305,7 +307,6 @@ void *TrainModelThread(void *id) {
           l2 = target * c_length;
           f = 0.0;
           for (a = 0; a < c_length; ++a) f += c[a + l1] * cneg[a + l2];
-          // printf("f: %f, l1: %lld, l2: %lld\n", f, l1, l2);
           if (f > MAX_EXP) g = (label - 1) * alpha * lambda1;
           else if (f < -MAX_EXP) g = (label - 0) * alpha * lambda1;
           else {
@@ -316,10 +317,10 @@ void *TrainModelThread(void *id) {
           // putchar('c');
           for (a = 0; a < c_length; ++a) c_error[a] += g * cneg[a + l2];
           // putchar('c');
-          for (a = 0; a < c_length; ++a) cneg[a + l2] += g * c[a + l1];
+          for (a = 0; a < c_length; ++a) cneg[a + l2] += GCLIP(g * c[a + l1] - lambda3 * cneg[a + l2]);
           // putchar('\n');
         }
-        for (a = 0; a < c_length; ++a) c[a + l1] += c_error[a];
+        for (a = 0; a < c_length; ++a) c[a + l1] += GCLIP(c_error[a] - lambda3 * cneg[a + l2]);
       }
 
       //cal relation mention embedding
@@ -335,7 +336,6 @@ void *TrainModelThread(void *id) {
         l1 = a * c_length;
         for (i = 0; i < c_length; ++i) z[a] += c_error[i] * o[l1 + i];
       }
-      // printf("-1:%f, %f\n", z_error[0], z[0]);
       
       // infer true labels
       // score here is prob, which is the larger the better
@@ -363,29 +363,16 @@ void *TrainModelThread(void *id) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-
-        // if (infer_together) score_p[i] += score_p[i] * f; //max
+        score_kl[i] = f;
+        g = g > f ? g : f;
+      }
+      for (i = 0; i < l_size; ++i) if (0 == special_none || i != NONE_idx) {
+        f = score_kl[i] - g;
         if (f > MAX_EXP || f < -MAX_EXP) score_kl[i] = exp(f);
         else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         sum_softmax += score_kl[i];
       }
-      f = 0; g = 0;
-      for (i = 0; i < l_size; ++i) {
-        if (score_kl[i] > f) {
-          g = f;
-          f = score_kl[i];
-        } else if (score_kl[i] > g) {
-          g = score_kl[i];
-        }
-      }
-      if (f - g > 0.5 * sum_softmax) {
-        sum_softmax = 0;
-        for (i = 0; i < l_size; ++i) {
-          score_kl[i] = (f == score_kl[i]);
-          sum_softmax += score_kl[i];
-        }
-        if (debug_mode > 2) printf("mod ss: %f\n", sum_softmax);
-      }
+      
       // if (infer_together) {
       //   g = log(sum_softmax);
       //   for (i = 0; i < l_size; ++i) {
@@ -423,30 +410,30 @@ void *TrainModelThread(void *id) {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
         if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-        lb[label] += alpha  - f;
+        lb[label] += GCLIP(alpha - f - lambda3 * lb[label]);
         for (a = 0; a < l_length; ++a){
           z_error[a] += l[l1 + a] * (alpha - f);
-          l[l1 + a] += z[a] * (alpha - f) ;
+          l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);
         }
         // printf("%f\n", z_error[0]);
         for (i = 0; i < l_size; ++i) if (i != label && (0 == special_none || i != NONE_idx)) { //i != NONE_idx && 
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
-          lb[i] -= f;
+          lb[i] -= GCLIP(f + lambda3 * lb[i]);
           for (a = 0; a < l_length; ++a) {
             z_error[a] -= l[l1 + a] * f;
-            l[l1 + a] -= z[a] * f;
+            l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);
           }
         }
       } else {
         g = alpha / (l_size - 1);
         for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
           f = g - alpha * score_kl[label] / sum_softmax;
-          lb[i] += f;
+          lb[i] += GCLIP(f - lambda3 * lb[i]);
           l1 = i * l_length;
           for (a = 0; a < l_length; ++a){
             z_error[a] += l[l1 + a] * f;
-            l[l1 + a] += z[a] * f;
+            l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);
           }
         }
       }
@@ -464,10 +451,10 @@ void *TrainModelThread(void *id) {
           g = alpha * lambda2 * (ph1 - ph2) * sigmoidD[a] * (1- sigmoidD[a]) / f;
           // printf("ll: %f \n", g);
           l1 = j * l_length;
-          db[j] += g;
+          db[j] += GCLIP(g - lambda3 * db[j]);
           for (b = 0; b < l_length; ++b){
             z_error[b] += d[l1 + b] * g;
-            d[l1 + b] += z[b] * g;
+            d[l1 + b] += GCLIP(z[b] * g - lambda3 * d[l1 + b]);
           }
           // printf("ll: %f \n", z_error[0]);
           //ph1, ph2
@@ -478,10 +465,10 @@ void *TrainModelThread(void *id) {
           g = alpha * lambda2 * (ph2 - ph1) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
           // printf("%f \n", g);
           l1 = j * l_length;
-          db[j] += g;
+          db[j] += GCLIP(g - lambda3 * db[j]);
           for (b = 0; b< l_length; ++b) {
             z_error[b] += d[l1 + b] * g;
-            d[l1 + b] += z[b] * g;
+            d[l1 + b] += GCLIP(z[b] * g - lambda3 * d[l1 + b]);
           }
           // printf("%f \n", z_error[0]);
         }
@@ -491,7 +478,7 @@ void *TrainModelThread(void *id) {
       if (debug_mode > 2) printf("2:%f, %f\n", z_error[0], o[0]);
       for (a = 0; a < l_length; ++a) {
         l1 = a * c_length;
-        for (b = 0; b < c_length; ++b) o[l1 + b] += z_error[a] * c_error[b];
+        for (b = 0; b < c_length; ++b) o[l1 + b] += GCLIP(z_error[a] * c_error[b] - lambda3 * o[l1 + b]);
       }
       // update c
       for (a = 0; a < c_length; ++a) c_error[a] = 0;
@@ -503,7 +490,7 @@ void *TrainModelThread(void *id) {
       for (a = 0; a < c_length; ++a) c_error[a] /= cur_ins->c_num;
       for (i = 0; i < cur_ins->c_num; ++i) {
         l1 = cur_ins->cList[i] * c_length;
-        for (j = 0; j < c_length; ++j) c[l1 + j] += c_error[j];
+        for (j = 0; j < c_length; ++j) c[l1 + j] += GCLIP(c_error[j] - lambda3 * c[l1 + j]);
       }
       // update index
       ++cur_id;
@@ -697,6 +684,8 @@ int main(int argc, char **argv) {
   else if (0 != special_none) {fprintf(stderr, "none_idx is required" );}
   if ((i = ArgPos((char *)"-lambda1", argc, argv)) > 0) lambda1 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda2", argc, argv)) > 0) lambda2 = atof(argv[i + 1]);
+  if ((i = ArgPos((char *)"-lambda3", argc, argv)) > 0) lambda3 = atof(argv[i + 1]);
+  if ((i = ArgPos((char *)"-grad_clip", argc, argv)) > 0) grad_clip = atof(argv[i + 1]);
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   sigTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   if (sigTable == NULL) {
