@@ -48,8 +48,8 @@ char train_file[MAX_STRING], output_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together=0;
-long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, special_none = 0;
+long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx;
 real lambda1 = 0.3, lambda2 = 0.3;
 long long ins_num = 181965, ins_count_actual = 0;
 long long iters = 10;
@@ -359,7 +359,7 @@ void *TrainModelThread(void *id) {
       }
       sum_softmax = 0.0;
       g = 0.0;
-      for (i = 0 ; i < l_size; ++i) {//if (i!= NONE_idx) {
+      for (i = 0 ; i < l_size; ++i) if (0 == special_none || i!= NONE_idx) {
         f = lb[i];
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
@@ -419,22 +419,35 @@ void *TrainModelThread(void *id) {
         putchar('\n');
       }
 
-      l1 = label * l_length;
-      f = alpha * score_kl[label] / sum_softmax;
-      if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-      lb[label] += alpha  - f;
-      for (a = 0; a < l_length; ++a){
-        z_error[a] += l[l1 + a] * (alpha - f);
-        l[l1 + a] += z[a] * (alpha - f) ;
-      }
-      // printf("%f\n", z_error[0]);
-      for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
-        l1 = i * l_length;
-        f = alpha * score_kl[i] / sum_softmax;
-        lb[i] -= f;
-        for (a = 0; a < l_length; ++a) {
-          z_error[a] -= l[l1 + a] * f;
-          l[l1 + a] -= z[a] * f;
+      if (0 == special_none || NONE_idx != label) {
+        l1 = label * l_length;
+        f = alpha * score_kl[label] / sum_softmax;
+        if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
+        lb[label] += alpha  - f;
+        for (a = 0; a < l_length; ++a){
+          z_error[a] += l[l1 + a] * (alpha - f);
+          l[l1 + a] += z[a] * (alpha - f) ;
+        }
+        // printf("%f\n", z_error[0]);
+        for (i = 0; i < l_size; ++i) if (i != label && (0 == special_none || i != NONE_idx)) { //i != NONE_idx && 
+          l1 = i * l_length;
+          f = alpha * score_kl[i] / sum_softmax;
+          lb[i] -= f;
+          for (a = 0; a < l_length; ++a) {
+            z_error[a] -= l[l1 + a] * f;
+            l[l1 + a] -= z[a] * f;
+          }
+        }
+      } else {
+        g = alpha / (l_size - 1);
+        for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+          f = g - alpha * score_kl[label] / sum_softmax;
+          lb[i] += f;
+          l1 = i * l_length;
+          for (a = 0; a < l_length; ++a){
+            z_error[a] += l[l1 + a] * f;
+            l[l1 + a] += z[a] * f;
+          }
         }
       }
       // }
@@ -543,7 +556,7 @@ void SaveModel() {
     fprintf(stderr, "Cannot open %s: permission denied\n", output_file);
     exit(1);
   }
-  fprintf(fo, "%lld %lld %lld %lld %lld\n", c_size, c_length, l_size, l_length, d_size);//, NONE_idx);
+  fprintf(fo, "%lld %lld %lld %lld %lld %d %lld\n", c_size, c_length, l_size, l_length, d_size, special_none, NONE_idx);
   if (binary) {
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) BWRITE(c[b * c_length + a], fo)
@@ -665,6 +678,7 @@ int main(int argc, char **argv) {
   // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lleng", argc, argv)) > 0) l_length = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
@@ -678,8 +692,9 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-infer_together", argc, argv)) > 0) infer_together = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
-  // if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
-  // else {fprintf(stderr, "none_idx is required" );}
+  if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iters = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
+  else if (0 != special_none) {fprintf(stderr, "none_idx is required" );}
   if ((i = ArgPos((char *)"-lambda1", argc, argv)) > 0) lambda1 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda2", argc, argv)) > 0) lambda2 = atof(argv[i + 1]);
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
@@ -696,7 +711,7 @@ int main(int argc, char **argv) {
   LoadTrainingData();
   printf("Initialization\n");
   InitNet();
-  printf("start training \n ");
+  printf("start training, iters: %lld \n ", iters);
   TrainModel();
   printf("\nSaving to %s\n", output_file);
   SaveModel();
