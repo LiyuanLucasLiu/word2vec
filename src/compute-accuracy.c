@@ -48,18 +48,18 @@ char test_file[MAX_STRING], model_file[MAX_STRING], test_result[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 // long long  *cCount;
-int binary = 1, debug_mode = 1;
+int binary = 1, debug_mode = 1, no_lb, no_db, special_none = 0, ignore_none = 0;
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0; //NONE_idx,
 // real lambda1 = 0.3, lambda2 = 0.3;
-long long ins_num = 2111, ins_count_actual = 0;
+long long ins_num = 2111, ins_count_actual = 0, NONE_idx = -1;
 // long long iters = 10;
 // long print_every = 1000;
 // real alpha = 0.025, starting_alpha, sample = 1e-4;
-
 struct training_ins * data;
 long long * predicted_label;
 real *c, *l, *lb;
 real *o;
+real *scores;
 // real *sigTable, *expTable;
 
 clock_t start;
@@ -113,7 +113,6 @@ void LoadTestingData(){
   long long curInsCount = ins_num, a, b;
   
   data = (struct training_ins *) calloc(ins_num, sizeof(struct training_ins));
-  predicted_label = (long long *) calloc(ins_num, sizeof(long long));
   while(curInsCount--){
     // printf("curInsCount: %lld\n", curInsCount);
     data[curInsCount].id = 1;
@@ -128,104 +127,151 @@ void LoadTestingData(){
 
     for (a = data[curInsCount].c_num; a; --a) {
       ReadWord(&b, fin);
-      if (b > c_size) c_size = b;
       data[curInsCount].cList[a-1] = b;
     }
     for (a = data[curInsCount].sup_num; a; --a) {
       ReadWord(&b, fin);
-      if (b > l_size) l_size = b;
       data[curInsCount].supList[a-1].label = b;
       ReadWord(&b, fin);
-      if (b > d_size) d_size = b;
       data[curInsCount].supList[a-1].function_id = b;
     }
   }
-  c_size++; d_size++; l_size++;
   if ((debug_mode > 1)) {
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
+
+  predicted_label = (long long *) calloc(ins_num, sizeof(long long));
+  // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
+  // getchar();
+  scores = (real *) calloc(ins_num * l_size, sizeof(real));
 }
 
 void TestModel() {
   int i, j, a, b;
-  long long l1;
+  long long l1, l2;
   real f, g;
   real *cs = (real *) calloc(c_length, sizeof(real));
   real *z = (real *) calloc(l_length, sizeof(real));
   long long correct = 0;
-  for (i = 0; i < ins_num; ++i){
-    struct training_ins * cur_ins = data+ i;
-    //calculate z;
-    for (j = 0; j < c_length; ++j)
-      cs[j] = 0;
-    for (a = 0; a < cur_ins->c_num; ++a) {
-      l1 = c_length * cur_ins->cList[a];
-      for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
-    }
-    for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
-    for (a = 0; a < l_length; ++a){
-      z[a] = 0;
-      l1 = a * c_length;
-      for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
-    }
-
-    b = -1; g = 0;
-    for (j = 0; j < l_size; ++j) {
-      f = lb[j];
-      l1 = j * l_length;
-      for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-      if (-1 == b || f > g){
-        g = f;
-        b = j;
+  long long act_ins_num = 0;
+  if (0 == special_none) {
+    for (i = 0; i < ins_num; ++i){
+      struct training_ins * cur_ins = data+ i;
+      //calculate z;
+      if (0 != ignore_none && cur_ins->supList[0].label == NONE_idx)
+        continue;
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
       }
-      if (debug_mode > 1) printf("%d, %d, %f, %f, %f, %f\n", i, j, f, z[0], l[l1], lb[j]);
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        z[a] = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
+      }
+      l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) if (0 == ignore_none || j != NONE_idx) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        if (debug_mode > 1) printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]);
+        scores[l2 + j] = f;
+      }
+      predicted_label[i] = b;
+      correct += (b == cur_ins->supList[0].label);
+      ++act_ins_num;
     }
-    predicted_label[i] = b;
-    correct += (b == cur_ins->supList[0].label);
   }
-  printf("totally %lld instances, correct %lld instances, accuracy %f", ins_num, correct, (real) correct / ins_num * 100);
+  printf("totally %lld instances, correct %lld instances, accuracy %f", act_ins_num, correct, (real) correct / act_ins_num * 100);
 }
 
 void SaveResult() {
   FILE *fout = fopen(test_result, "w");
-  int i;
-  for (i = 0; i < ins_num; ++i) 
-    fprintf(fout, "%lld,%lld\n", data[i].supList[0].label, predicted_label[i]); 
+  int i, j;
+  long long l1;
+  for (i = 0; i < ins_num; ++i) {
+    fprintf(fout, "%lld,%lld:", data[i].supList[0].label, predicted_label[i]); 
+    l1 = i * l_size;
+    for (j = 0; j < l_size; ++j) {
+      fprintf(fout, "%f,", scores[l1 + j]);
+    }
+    fprintf(fout, "\n");
+  }
   fclose(fout);
 }
-void ReadModel() {  
+
+void ReadModel() {
   FILE *fi = fopen(model_file, "rb");
   long long a, b;
   if (fi == NULL) {
     fprintf(stderr, "Cannot open %s: permission denied\n", model_file);
     exit(1);
   }
-  fscanf(fi, "%lld %lld %lld %lld %lld\n", &c_size, &c_length, &l_size, &l_length, &d_size);//, NONE_idx);
+  fscanf(fi, "%lld %lld %lld %lld %lld %d %lld %d %d %d\n", &c_size, &c_length, &l_size, &l_length, &d_size, &special_none, &NONE_idx, &no_lb, &no_db, &ignore_none);
   a = posix_memalign((void **)&c, 128, (long long)c_size * c_length * sizeof(real));
   CHECKNULL(c)
   a = posix_memalign((void **)&l, 128, (long long)l_size * l_length * sizeof(real));
   CHECKNULL(l)
   a = posix_memalign((void **)&o, 128, (long long)c_length * l_length * sizeof(real));
   CHECKNULL(o)
-  a = posix_memalign((void **)&lb, 128, (long long)l_size * sizeof(real));
-  CHECKNULL(lb)
+  if (0== no_lb) {
+    a = posix_memalign((void **)&lb, 128, (long long)l_size * sizeof(real));
+    CHECKNULL(lb)
+  }
+  real sum_check = 0, rsum;
   if (binary) {
     for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) BREAD(c[b * c_length + a], fi)
+      for (a = 0; a < c_length; ++a) {
+        BREAD(c[b * c_length + a], fi)
+        sum_check += c[b* c_length + a];
+      }
     }
-    for (b = 0; b < l_size; ++b) BREAD(lb[b], fi)
+    BREAD(rsum, fi)
+    if (sum_check != rsum) {printf("c not fit!\n"); exit(1);}
+    sum_check = 0;
+    if (0==no_lb) {
+      for (b = 0; b < l_size; ++b) {
+        BREAD(lb[b], fi)
+        sum_check += lb[b];
+      }
+      BREAD(rsum, fi)
+      if (sum_check != rsum) {printf("lb not fit!\n"); exit(1);}
+      sum_check = 0;
+    }
     for (b = 0; b < l_size; ++b) {
-      for (a = 0; a < l_length; ++a) BREAD(l[b * l_length + a], fi)
+      for (a = 0; a < l_length; ++a) {
+        BREAD(l[b * l_length + a], fi)
+        sum_check += l[b * l_length + a];
+      }
     }
+    BREAD(rsum, fi)
+    if (sum_check != rsum) {printf("l not fit!\n"); exit(1);}
+    sum_check = 0;
     for (b = 0; b < l_length; ++b) {
-      for (a = 0; a < c_length; ++a) BREAD(o[b * c_length + a], fi)
+      for (a = 0; a < c_length; ++a) {
+        BREAD(o[b * c_length + a], fi)
+        sum_check += o[b * c_length + a];
+        // printf("%lld, %lld, %f, %f\n", b, a, sum_check, o[b * c_length + a]);
+      }
     }
+    BREAD(rsum, fi)
+    if (sum_check != rsum) {printf("o not fit!\n"); exit(1);}
+    printf("sum check pass!\n");
   } else {
     for (b = 0; b < c_size; ++b) {
       for (a = 0; a < c_length; ++a) SREAD(c[b * c_length + a], fi)
     }
-    for (b = 0; b < l_size; ++b) SREAD(lb[b], fi)
+    if (0==no_lb) for (b = 0; b < l_size; ++b) SREAD(lb[b], fi)
     for (b = 0; b < l_size; ++b) {
       for (a = 0; a < l_length; ++a) SREAD(l[b * l_length + a], fi)
     }
@@ -293,7 +339,7 @@ int main(int argc, char **argv) {
     // printf("\t-none_idx <file>\n");
     // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
-    printf("./recol -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.model\n\n");//-none_idx 5 
+    printf("./compute-accuracy -test /shared/data/ll2/CoType/data/intermediate/KBP/test.data -model /shared/data/ll2/CoType/data/intermediate/KBP/default.model -binary 1 -output /shared/data/ll2/CoType/data/intermediate/KBP/result.csv -instances 2111 -debug 2 -none_mode 0\n\n");//-none_idx 5 
     return 0;
   }
   if ((i = ArgPos((char *)"-test", argc, argv)) > 0) strcpy(test_file, argv[i + 1]);
@@ -302,11 +348,13 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(test_result, argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-none_mode", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
 
-  printf("Loading training file %s\n", test_file);
-  LoadTestingData();
+  printf("none_mode: %d\n", special_none);
   printf("Loading Model: %s\n", model_file);
   ReadModel();
+  printf("Loading test file %s\n", test_file);
+  LoadTestingData();
   printf("start Testing \n ");
   TestModel();
   printf("\nSaving to %s\n", test_result);
