@@ -487,7 +487,16 @@ void *TrainModelThread(void *id) {
       }
       DDMode({printf("\n");})
       if (0 != ignore_none && -1 == label) {
+#ifdef DROPOUT
+      // printf("wrong\n");
+        for (i = 0; i < cur_ins->c_num; ++i) {
+          if (cur_ins->cList[i] < 0) {
+            cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
+          }
+        }
+#endif
         ++cur_id;
+
         // printf("%lld\n", cur_id);
         continue;
       }
@@ -548,7 +557,7 @@ void *TrainModelThread(void *id) {
         //updadte predicted label
         sum_softmax = 0.0;
         g = -INFINITY; predicted_label = -1;
-        for (i = 0 ; i < l_size; ++i) if (i!= NONE_idx) {
+        for (i = 0 ; i < l_size; ++i) {
           if (0 == no_lb) f = lb[i];
           else f = 0;
           l1 = i * l_length;
@@ -561,8 +570,9 @@ void *TrainModelThread(void *id) {
             predicted_label = i;
           }
         }
-        for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+        for (i = 0; i < l_size; ++i) {
           f = score_kl[i] - g;
+          if (debug_mode > 2) printf("f: %f, %f, %f\n", f, g, score_kl[i]);
           if (f < -MAX_EXP) score_kl[i] = 0;
           else if (f > MAX_EXP) printf("error! softmax over 1!\n");
           else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
@@ -570,39 +580,39 @@ void *TrainModelThread(void *id) {
         }
         if (debug_mode > 2) printf("softmax: %f, %f, %f", sum_softmax, g, expTable[EXP_TABLE_SIZE / 2]);
         // update l, lb
-        if (NONE_idx != label) {
-          l1 = label * l_length;
-          f = alpha * score_kl[label] / sum_softmax;
-          if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-          if (0 == no_lb) lb[label] += GCLIP(alpha- lambda3 * lb[label]);// - f - lambda3 * lb[label]);
-          for (a = 0; a < l_length; ++a){
-            z_error[a] += l[l1 + a] * (alpha - f);
-            l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-            // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
-          }
-          // printf("%f\n", z_error[0]);
-          for (i = 0; i < l_size; ++i) if (i != label && (i != NONE_idx)) { //i != NONE_idx && 
-            l1 = i * l_length;
-            f = alpha * score_kl[i] / sum_softmax;
-            if (0 == no_lb) lb[i] -= GCLIP(f + lambda3 * lb[i]);// + lambda3 * lb[i]);
-            for (a = 0; a < l_length; ++a) {
-              z_error[a] -= l[l1 + a] * f;
-              l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
-            }
-          }
-        } else {
-          // printf("Wrong\n");
-          g = alpha / (l_size - 1);
-          for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
-            f = g - alpha * score_kl[label] / sum_softmax;
-            if (0 == no_lb) lb[i] += GCLIP(f - lambda3 * lb[i]);// - lambda3 * lb[i]);
-            l1 = i * l_length;
-            for (a = 0; a < l_length; ++a){
-              z_error[a] += l[l1 + a] * f;
-              l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-            }
+        // if (NONE_idx != label) {
+        l1 = label * l_length;
+        f = alpha * score_kl[label] / sum_softmax;
+        if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
+        if (0 == no_lb) lb[label] += GCLIP(alpha- lambda3 * lb[label]);// - f - lambda3 * lb[label]);
+        for (a = 0; a < l_length; ++a){
+          z_error[a] += l[l1 + a] * (alpha - f);
+          l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
+          // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
+        }
+        // printf("%f\n", z_error[0]);
+        for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
+          l1 = i * l_length;
+          f = alpha * score_kl[i] / sum_softmax;
+          if (0 == no_lb) lb[i] -= GCLIP(f + lambda3 * lb[i]);// + lambda3 * lb[i]);
+          for (a = 0; a < l_length; ++a) {
+            z_error[a] -= l[l1 + a] * f;
+            l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
           }
         }
+        // } else {
+        //   // printf("Wrong\n");
+        //   g = alpha / (l_size - 1);
+        //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+        //     f = g - alpha * score_kl[label] / sum_softmax;
+        //     if (0 == no_lb) lb[i] += GCLIP(f - lambda3 * lb[i]);// - lambda3 * lb[i]);
+        //     l1 = i * l_length;
+        //     for (a = 0; a < l_length; ++a){
+        //       z_error[a] += l[l1 + a] * f;
+        //       l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
+        //     }
+        //   }
+        // }
         if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
       #endif
 
@@ -883,7 +893,7 @@ int main(int argc, char **argv) {
     // printf("\t-none_idx <file>\n");
     // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
-    printf("./rhsre -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.class -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 1 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
+    printf("./rhsre -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.class -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
     return 0;
   }
   output_file[0] = 0;
