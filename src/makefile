@@ -4,18 +4,29 @@ BIN_DIR=../bin
 CC = gcc
 #The -Ofast might not work with older versions of gcc; in that case, use -O2
 # -O2
-CFLAGS = -lm -pthread -O2 -Wall -funroll-loops 
+CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: recol compute-accuracy old_recol gcrecol
+all: val hsre mhsre rhsre mrhsre modify mmodify dmodify rmodify
 
-recol : recol.c
-	$(CC) recol.c -o ${BIN_DIR}/recol $(CFLAGS)
-gcrecol : recol.c
-	$(CC) recol.c -o ${BIN_DIR}/gcrecol $(CFLAGS) -DGRADCLIP
-old_recol : old_recol.c
-	$(CC) old_recol.c -o ${BIN_DIR}/old_recol $(CFLAGS)
-compute-accuracy : compute-accuracy.c
-	$(CC) compute-accuracy.c -o ${BIN_DIR}/compute-accuracy $(CFLAGS)
+
+hsre : hsre.c
+	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)
+rhsre : hsre.c
+	$(CC) hsre.c -o ${BIN_DIR}/rhsre $(CFLAGS) -DDROPOUT
+mhsre : hsre.c
+	$(CC) hsre.c -o ${BIN_DIR}/mhsre $(CFLAGS) -DMARGIN	
+mrhsre : hsre.c
+	$(CC) hsre.c -o ${BIN_DIR}/mhsre $(CFLAGS) -DMARGIN	-DDROPOUT
+modify : modify.c
+	$(CC) modify.c -o ${BIN_DIR}/modify $(CFLAGS)
+rmodify : modify.c
+	$(CC) modify.c -o ${BIN_DIR}/rmodify $(CFLAGS) -DDROPOUT
+dmodify : modify.c
+	$(CC) modify.c -o ${BIN_DIR}/dmodify $(CFLAGS) -DDEBUG
+mmodify : modify.c
+	$(CC) modify.c -o ${BIN_DIR}/mmodify $(CFLAGS) -DMARGIN
+val : val.c
+	$(CC) val.c -o ${BIN_DIR}/val $(CFLAGS)
 
 clean:
 	pushd ${BIN_DIR}
