@@ -60,7 +60,7 @@ struct training_ins {
   struct supervision *supList;
 };
 
-char train_file[MAX_STRING], output_file[MAX_STRING];
+char train_file[MAX_STRING], test_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
@@ -68,12 +68,13 @@ int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, m
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
 long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
+long long test_ins_num = 2111;
 long long iters = 10;
 long print_every = 1000;
 real alpha = 0.025, starting_alpha, sample = 1e-4;
 real grad_clip = 5;
 
-struct training_ins * data;
+struct training_ins * data, *test_ins;
 real *c, *l, *d, *cneg, *db, *lb;
 real *o;
 real ph1, ph2;
@@ -527,7 +528,7 @@ void *TrainModelThread(void *id) {
       // update params 
       
       //update predicted label && predicton model
-      #ifdef MARGIN
+      #ifdef MARGIN //not recommended
         //updadte predicted label
         g = -INFINITY; predicted_label = -1; h = -10000;//wrong
         for (i = 0 ; i < l_size; ++i) {
@@ -753,135 +754,278 @@ void TrainModel() {
   free(pt);
 }
 
-void SaveModel() {  
-  FILE *fo = fopen(output_file, "wb");
-  long long a, b;
-  if (fo == NULL) {
-    fprintf(stderr, "Cannot open %s: permission denied\n", output_file);
+// void SaveModel() {  
+//   FILE *fo = fopen(test_file, "wb");
+//   long long a, b;
+//   if (fo == NULL) {
+//     fprintf(stderr, "Cannot open %s: permission denied\n", test_file);
+//     exit(1);
+//   }
+//   real sum_check = 0;
+//   fprintf(fo, "%lld %lld %lld %lld %lld %lld %d %d %d\n", c_size, c_length, l_size, l_length, d_size, NONE_idx, no_lb, no_db, ignore_none);
+//   if (binary) {
+//     for (b = 0; b < c_size; ++b) {
+//       for (a = 0; a < c_length; ++a) {
+//         sum_check += c[b * c_length + a];
+//         BWRITE(c[b * c_length + a], fo)
+//         DDMode({printf("%f, ", c[b * c_length + a]);})
+//       }
+//       DDMode({printf("\n");})
+//     }
+//     BWRITE(sum_check, fo)
+//     sum_check = 0;
+//     if (0==no_lb) {
+//       for (b = 0; b < l_size; ++b) {
+//         sum_check += lb[b];
+//         BWRITE(lb[b], fo)
+//       }
+//       BWRITE(sum_check, fo)
+//       sum_check = 0;
+//     }
+//     for (b = 0; b < l_size; ++b) {
+//       for (a = 0; a < l_length; ++a) {
+//         sum_check += l[b * l_length + a];
+//         BWRITE(l[b * l_length + a], fo)
+//         DDMode({printf("%f, ", l[b * l_length + a]);})
+//       }
+//       DDMode({printf("\n");})
+//     }
+//     BWRITE(sum_check, fo)
+//     sum_check = 0;
+//     for (b = 0; b < l_length; ++b) {
+//       for (a = 0; a < c_length; ++a) {
+//         sum_check += o[b * c_length + a];
+//         BWRITE(o[b * c_length + a], fo)
+//         DDMode({printf("%f,", o[b * c_length + a]);})
+//         // printf("%lld, %lld, %f, %f\n", b, a, sum_check, o[b * c_length + a]);
+//       }
+//       DDMode({printf("\n");})
+//     }
+//     // printf("%lld, %lld, %f, %f, %f, %f\n", l_length, c_length, o[1], o[l_length+1], o[2*l_length+1], sum_check);
+//     BWRITE(sum_check, fo)
+//     BWRITE(lambda1, fo)
+//     BWRITE(lambda2, fo)
+//     BWRITE(lambda3, fo)
+//     BWRITE(lambda4, fo)
+//     BWRITE(lambda5, fo)
+//     BWRITE(lambda6, fo)
+//     BWRITE(ph1, fo)
+//     BWRITE(ph2, fo)
+//     for (b = 0; b < c_size; ++b) {
+//       for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
+//     }
+//     if (0 == no_db) for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
+//     for (b = 0; b < d_size; ++b) {
+//       for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
+//     }
+//   } else {
+//     for (b = 0; b < c_size; ++b) {
+//       for (a = 0; a < c_length; ++a) {
+//         sum_check += c[b * c_length + a];
+//         SWRITE(c[b * c_length + a], fo)
+//       }
+//       fprintf(fo, "\n");
+//     }
+//     SWRITE(sum_check, fo)
+//     fprintf(fo, "\n");
+//     sum_check = 0;
+//     if (0==no_lb) {
+//       for (b = 0; b < l_size; ++b) {
+//         sum_check += lb[b];
+//         SWRITE(lb[b], fo)
+//       }
+//       fprintf(fo, "\n"); 
+//       SWRITE(sum_check, fo)
+//       fprintf(fo, "\n");
+//       sum_check = 0;
+//     }
+//     for (b = 0; b < l_size; ++b) {
+//       for (a = 0; a < l_length; ++a) {
+//         sum_check += l[b * l_length + a];
+//         SWRITE(l[b * l_length + a], fo)
+//       }
+//       fprintf(fo, "\n");
+//     }
+//     SWRITE(sum_check, fo)
+//     fprintf(fo, "\n");
+//     sum_check = 0;
+//     for (b = 0; b < l_length; ++b) {
+//       for (a = 0; a < c_length; ++a) {
+//         sum_check += l[b * l_length + a];
+//         SWRITE(o[b * c_length + a], fo)
+//       }
+//       fprintf(fo, "\n");
+//     }
+//     SWRITE(sum_check, fo)
+//     fprintf(fo, "\n");
+//     SWRITE(lambda1, fo)
+//     SWRITE(lambda2, fo)
+//     SWRITE(lambda3, fo)
+//     SWRITE(lambda4, fo)
+//     SWRITE(lambda5, fo)
+//     SWRITE(lambda6, fo)
+//     SWRITE(ph1, fo)
+//     SWRITE(ph2, fo)
+//     fprintf(fo, "\n");
+//     for (b = 0; b < c_size; ++b) {
+//       // printf("%f,", cneg[b* c_length]);
+//       for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
+//       fprintf(fo, "\n");
+//     }
+//     if (0 == no_db) {
+//       for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
+//       fprintf(fo, "\n");
+//     }
+//     for (b = 0; b < d_size; ++b) {
+//       // printf("%f,", d[b* l_length]);
+//       for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
+//       fprintf(fo, "\n");
+//     }
+//   }
+//   fclose(fo);
+// }
+
+void TestModel() {
+  long long i, j, a, b;
+  long long l1, l2;
+  real f, g;
+  real *cs = (real *) calloc(c_length, sizeof(real));
+  real *z = (real *) calloc(l_length, sizeof(real));
+  if (0 != ignore_none) {
+    long long correct = 0;
+    long long act_ins_num = 0;
+    for (i = 0; i < test_ins_num; ++i){
+      struct training_ins * cur_ins = test_ins + i;
+      //calculate z;
+      if (cur_ins->supList[0].label == NONE_idx)
+        continue;
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        z[a] = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
+      }
+      // for (a = 0; a < l_length; ++a)
+      // l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        if (debug_mode > 2) printf("%f, ", f);
+        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
+        // scores[l2 + j] = f;
+      }
+      // predicted_label[i] = b;
+      if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
+      correct += (b == cur_ins->supList[0].label);
+      ++act_ins_num;
+    }
+    printf("\ntotally %lld instances, correct %lld instances, accuracy %f\n\n", act_ins_num, correct, (real) correct / act_ins_num * 100);
+  } else {
+    long long correct = 0;
+    long long act_ins_num = 0, act_pred_num = 0;
+    for (i = 0; i < test_ins_num; ++i){
+      struct training_ins * cur_ins = test_ins + i;
+      //calculate z;
+      act_ins_num += (cur_ins->supList[0].label == NONE_idx ? 0 : 1);
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        z[a] = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
+      }
+      l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        if (debug_mode > 2) printf("%f, ", f);
+        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
+        // scores[l2 + j] = f;
+      }
+      // predicted_label[i] = b;
+      if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
+      if (b != NONE_idx) {
+        correct += (b == cur_ins->supList[0].label);
+        ++act_pred_num;
+      }
+    }
+    printf("\nground_truth: %lld, predicted: %lld, correct: %lld, pre: %f, rec: %f, f1: %f\n\n", act_ins_num, act_pred_num, correct, (real) correct / act_pred_num * 100, (real) correct / act_ins_num * 100, (real) correct / (act_ins_num + act_pred_num) * 50);
+  }
+  FREE(cs);
+  FREE(z);
+}
+
+void LoadTestingData(){
+  FILE *fin = fopen(test_file, "r");
+  if (fin == NULL) {
+    fprintf(stderr, "no such file: %s\n", test_file);
     exit(1);
   }
-  real sum_check = 0;
-  fprintf(fo, "%lld %lld %lld %lld %lld %lld %d %d %d\n", c_size, c_length, l_size, l_length, d_size, NONE_idx, no_lb, no_db, ignore_none);
-  if (binary) {
-    for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) {
-        sum_check += c[b * c_length + a];
-        BWRITE(c[b * c_length + a], fo)
-        DDMode({printf("%f, ", c[b * c_length + a]);})
-      }
-      DDMode({printf("\n");})
+  if (debug_mode > 1) printf("curInsCount: %lld\n", test_ins_num);
+  long long curInsCount = test_ins_num, a, b;
+  
+  test_ins = (struct training_ins *) calloc(test_ins_num, sizeof(struct training_ins));
+  while(curInsCount--){
+    // printf("curInsCount: %lld\n", curInsCount);
+    test_ins[curInsCount].id = 1;
+    // printf("curInsCount: %lld\n", test_ins[curInsCount].id);
+    ReadWord(&test_ins[curInsCount].id, fin);
+    // putchar('a');
+    ReadWord(&test_ins[curInsCount].c_num, fin);
+    ReadWord(&test_ins[curInsCount].sup_num, fin);
+    test_ins[curInsCount].cList = (long long *) calloc(test_ins[curInsCount].c_num, sizeof(long long));
+    test_ins[curInsCount].supList = (struct supervision *) calloc(test_ins[curInsCount].sup_num, sizeof(struct supervision));
+    // printf("%lld, %lld, %lld\n", test_ins[curInsCount].id, test_ins[curInsCount].c_num, test_ins[curInsCount].sup_num);
+
+    for (a = test_ins[curInsCount].c_num; a; --a) {
+      ReadWord(&b, fin);
+      test_ins[curInsCount].cList[a-1] = b;
+      // printf("(%lld)", b);
     }
-    BWRITE(sum_check, fo)
-    sum_check = 0;
-    if (0==no_lb) {
-      for (b = 0; b < l_size; ++b) {
-        sum_check += lb[b];
-        BWRITE(lb[b], fo)
-      }
-      BWRITE(sum_check, fo)
-      sum_check = 0;
+    // printf("\n");
+    for (a = test_ins[curInsCount].sup_num; a; --a) {
+      ReadWord(&b, fin);
+      test_ins[curInsCount].supList[a-1].label = b;
+      ReadWord(&b, fin);
+      test_ins[curInsCount].supList[a-1].function_id = b;
+      // printf("(%lld, %lld)", test_ins[curInsCount].supList[a-1].label, test_ins[curInsCount].supList[a-1].function_id);
     }
-    for (b = 0; b < l_size; ++b) {
-      for (a = 0; a < l_length; ++a) {
-        sum_check += l[b * l_length + a];
-        BWRITE(l[b * l_length + a], fo)
-        DDMode({printf("%f, ", l[b * l_length + a]);})
-      }
-      DDMode({printf("\n");})
-    }
-    BWRITE(sum_check, fo)
-    sum_check = 0;
-    for (b = 0; b < l_length; ++b) {
-      for (a = 0; a < c_length; ++a) {
-        sum_check += o[b * c_length + a];
-        BWRITE(o[b * c_length + a], fo)
-        DDMode({printf("%f,", o[b * c_length + a]);})
-        // printf("%lld, %lld, %f, %f\n", b, a, sum_check, o[b * c_length + a]);
-      }
-      DDMode({printf("\n");})
-    }
-    // printf("%lld, %lld, %f, %f, %f, %f\n", l_length, c_length, o[1], o[l_length+1], o[2*l_length+1], sum_check);
-    BWRITE(sum_check, fo)
-    BWRITE(lambda1, fo)
-    BWRITE(lambda2, fo)
-    BWRITE(lambda3, fo)
-    BWRITE(lambda4, fo)
-    BWRITE(lambda5, fo)
-    BWRITE(lambda6, fo)
-    BWRITE(ph1, fo)
-    BWRITE(ph2, fo)
-    for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
-    }
-    if (0 == no_db) for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
-    for (b = 0; b < d_size; ++b) {
-      for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
-    }
-  } else {
-    for (b = 0; b < c_size; ++b) {
-      for (a = 0; a < c_length; ++a) {
-        sum_check += c[b * c_length + a];
-        SWRITE(c[b * c_length + a], fo)
-      }
-      fprintf(fo, "\n");
-    }
-    SWRITE(sum_check, fo)
-    fprintf(fo, "\n");
-    sum_check = 0;
-    if (0==no_lb) {
-      for (b = 0; b < l_size; ++b) {
-        sum_check += lb[b];
-        SWRITE(lb[b], fo)
-      }
-      fprintf(fo, "\n"); 
-      SWRITE(sum_check, fo)
-      fprintf(fo, "\n");
-      sum_check = 0;
-    }
-    for (b = 0; b < l_size; ++b) {
-      for (a = 0; a < l_length; ++a) {
-        sum_check += l[b * l_length + a];
-        SWRITE(l[b * l_length + a], fo)
-      }
-      fprintf(fo, "\n");
-    }
-    SWRITE(sum_check, fo)
-    fprintf(fo, "\n");
-    sum_check = 0;
-    for (b = 0; b < l_length; ++b) {
-      for (a = 0; a < c_length; ++a) {
-        sum_check += l[b * l_length + a];
-        SWRITE(o[b * c_length + a], fo)
-      }
-      fprintf(fo, "\n");
-    }
-    SWRITE(sum_check, fo)
-    fprintf(fo, "\n");
-    SWRITE(lambda1, fo)
-    SWRITE(lambda2, fo)
-    SWRITE(lambda3, fo)
-    SWRITE(lambda4, fo)
-    SWRITE(lambda5, fo)
-    SWRITE(lambda6, fo)
-    SWRITE(ph1, fo)
-    SWRITE(ph2, fo)
-    fprintf(fo, "\n");
-    for (b = 0; b < c_size; ++b) {
-      // printf("%f,", cneg[b* c_length]);
-      for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
-      fprintf(fo, "\n");
-    }
-    if (0 == no_db) {
-      for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
-      fprintf(fo, "\n");
-    }
-    for (b = 0; b < d_size; ++b) {
-      // printf("%f,", d[b* l_length]);
-      for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
-      fprintf(fo, "\n");
-    }
+    // printf("\n");
   }
-  fclose(fo);
+  if ((debug_mode > 1)) {
+    printf("load Done\n");
+    printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
+  }
+
+  // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
+  // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
+  // getchar();
+  // scores = (real *) calloc(ins_num * l_size, sizeof(real));
 }
 
 int ArgPos(char *str, int argc, char **argv) {
@@ -906,10 +1050,10 @@ int main(int argc, char **argv) {
     // printf("\t-none_idx <file>\n");
     // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
-    printf("./rhsre -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -output /shared/data/ll2/CoType/data/intermediate/KBP/default.class -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
+    printf("./rhsre -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/test.data -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
     return 0;
   }
-  output_file[0] = 0;
+  test_file[0] = 0;
   // save_vocab_file[0] = 0;
   // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
@@ -919,13 +1063,14 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);
-  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-test", argc, argv)) > 0) strcpy(test_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-reSample", argc, argv)) > 0) reSample = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-threads", argc, argv)) > 0) num_threads = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-test_instances", argc, argv)) > 0) test_ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-infer_together", argc, argv)) > 0) infer_together = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iters = atoi(argv[i + 1]);
@@ -963,8 +1108,10 @@ int main(int argc, char **argv) {
   if (debug_mode > 1) printf("start training, iters: %lld \n ", iters);
   TrainModel();
   if (normL > 0) normalizeL();
-  if (debug_mode > 1) printf("\nSaving to %s\n", output_file);
-  SaveModel();
+  if (debug_mode > 1) printf("Loading test file %s\n", test_file);
+  LoadTestingData();
+  if (debug_mode > 1) printf("start Testing \n ");
+  TestModel();
   if (debug_mode > 1) printf("releasing memory\n");
   DestroyNet();
   free(expTable);

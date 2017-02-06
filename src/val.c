@@ -197,9 +197,9 @@ void TestModel() {
         }
         if (debug_mode > 2) printf("%f, ", f);
         // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
-        // scores[l2 + j] = f;
+        scores[l2 + j] = f;
       }
-      // predicted_label[i] = b;
+      predicted_label[i] = b;
       if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
       correct += (b == cur_ins->supList[0].label);
       ++act_ins_num;

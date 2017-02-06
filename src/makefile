@@ -6,7 +6,7 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: val hsre mhsre rhsre mrhsre #modify mmodify dmodify rmodify
+all: val hsre mhsre rhsre mrhsre modify mmodify rmodify mrmodify
 
 hsre : hsre.c
 	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)
@@ -20,10 +20,10 @@ modify : modify.c
 	$(CC) modify.c -o ${BIN_DIR}/modify $(CFLAGS)
 rmodify : modify.c
 	$(CC) modify.c -o ${BIN_DIR}/rmodify $(CFLAGS) -DDROPOUT
-dmodify : modify.c
-	$(CC) modify.c -o ${BIN_DIR}/dmodify $(CFLAGS) -DDEBUG
 mmodify : modify.c
-	$(CC) modify.c -o ${BIN_DIR}/mmodify $(CFLAGS) -DMARGIN
+	$(CC) modify.c -o ${BIN_DIR}/dmodify $(CFLAGS) -DMARGIN
+mrmodify : modify.c
+	$(CC) modify.c -o ${BIN_DIR}/mmodify $(CFLAGS) -DMARGIN -DDROPOUT
 val : val.c
 	$(CC) val.c -o ${BIN_DIR}/val $(CFLAGS)
 
