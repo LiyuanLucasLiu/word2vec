@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <math.h>
 #include <pthread.h>
 
@@ -44,6 +45,7 @@
 #define DROPOUTRATIO 100000
 #define MINIVALUE 0.00001
 #endif
+
 typedef float real;                    // Precision of float numbers
 
 struct supervision {
@@ -55,6 +57,9 @@ struct training_ins {
   long long id;
   long long c_num;
   long long *cList;
+#ifdef DROPOUT
+  _Bool *cFlag;
+#endif
   long long sup_num;
   struct supervision *supList;
 };
@@ -90,6 +95,9 @@ inline void copyIns(struct training_ins *To, struct training_ins *From){
   To->id = From->id;
   To->c_num = From->c_num;
   To->cList = From->cList;
+#ifdef DROPOUT
+  To->cFlag = From->cFlag;
+#endif  
   To->sup_num = From->sup_num;
   To->supList = From->supList;
 }
@@ -248,6 +256,9 @@ void LoadTrainingData(){
     ReadWord(&data[curInsCount].c_num, fin);
     ReadWord(&data[curInsCount].sup_num, fin);
     data[curInsCount].cList = (long long *) calloc(data[curInsCount].c_num, sizeof(long long));
+  #ifdef DROPOUT
+    data[curInsCount].cFlag = (_Bool *) calloc(data[curInsCount].c_num, sizeof(_Bool));
+  #endif
     data[curInsCount].supList = (struct supervision *) calloc(data[curInsCount].sup_num, sizeof(struct supervision));
     // printf("%lld, %lld, %lld\n", data[curInsCount].id, data[curInsCount].c_num, data[curInsCount].sup_num);
 
@@ -255,6 +266,9 @@ void LoadTrainingData(){
       ReadWord(&b, fin);
       if (b > c_size) c_size = b;
       data[curInsCount].cList[a-1] = b;
+#ifdef DROPOUT
+      data[curInsCount].cFlag[a-1] = false;
+#endif
     }
     for (a = data[curInsCount].sup_num; a; --a) {
       ReadWord(&b, fin);
@@ -436,9 +450,10 @@ void *TrainModelThread(void *id) {
         if (next_random % DROPOUTRATIO >= dropout) {
           dropoutLeft += 1;
           l1 = cur_ins->cList[i] * c_length;
+          cur_ins->cFlag[i] = true;
           for (j = 0; j < c_length; ++j) c_error[j] += c[l1 + j];
         } else {
-          cur_ins->cList[i] = (-1 * cur_ins->cList[i]) - 1;
+          cur_ins->cFlag[i] = false;
         }
       }
       for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + MINIVALUE) / (dropoutLeft + MINIVALUE);
@@ -495,9 +510,7 @@ void *TrainModelThread(void *id) {
 #ifdef DROPOUT
       // printf("wrong\n");
         for (i = 0; i < cur_ins->c_num; ++i) {
-          if (cur_ins->cList[i] < 0) {
-            cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
-          }
+          cur_ins->cFlag[i] = true;
         }
 #endif
         ++cur_id;
@@ -679,11 +692,10 @@ void *TrainModelThread(void *id) {
       // printf("wrong\n");
       for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + MINIVALUE)/(dropoutLeft + MINIVALUE); 
       for (i = 0; i < cur_ins->c_num; ++i) {
-        if (cur_ins->cList[i] >= 0) {
+        if (cur_ins->cFlag[i]) {
           l1 = cur_ins->cList[i] * c_length;
           for (j = 0; j < c_length; ++j) c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);// - lambda3 * c[l1 + j]);
-        } else {
-          cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
+          cur_ins->cFlag[i] = false;
         }
       }
 #else
