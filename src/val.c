@@ -184,7 +184,7 @@ void TestModel() {
         for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
       }
       // for (a = 0; a < l_length; ++a)
-      // l2 = i * l_size;
+      l2 = i * l_size;
       b = -1; g = 0;
       for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
         if (0 == no_lb) f = lb[j];

@@ -887,7 +887,7 @@ void TrainModel() {
 
 void TestModel() {
   long long i, j, a, b;
-  long long l1, l2;
+  long long l1;
   real f, g;
   real *cs = (real *) calloc(c_length, sizeof(real));
   real *z = (real *) calloc(l_length, sizeof(real));
@@ -952,7 +952,7 @@ void TestModel() {
         l1 = a * c_length;
         for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
       }
-      l2 = i * l_size;
+      // l2 = i * l_size;
       b = -1; g = 0;
       for (j = 0; j < l_size; ++j) {
         if (0 == no_lb) f = lb[j];
@@ -1050,7 +1050,7 @@ int main(int argc, char **argv) {
     // printf("\t-none_idx <file>\n");
     // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
-    printf("./rhsre -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/test.data -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
+    printf("./rmodify -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/test.data -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
     return 0;
   }
   test_file[0] = 0;
