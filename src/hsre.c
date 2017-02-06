@@ -23,7 +23,7 @@
 #define MAX_EXP 6
 #define MAX_SENTENCE_LENGTH 1000
 #define MAX_CODE_LENGTH 40
-#define FREE(x) if (x != NULL) {free(x);}
+#define FREE(x) //if (x != NULL) {free(x);}
 #define CHECKNULL(x) if (x == NULL) {printf("Memory allocation failed\n"); exit(1);}
 #define NRAND next_random = next_random * (unsigned long long)25214903917 + 11;
 #define BWRITE(x,f) fwrite(&x , sizeof(real), 1, f);
@@ -40,9 +40,10 @@
 #define GCLIP(x) (x)
 #endif
 
+#define MINIVALUE 0.00001
+
 #ifdef DROPOUT
 #define DROPOUTRATIO 100000
-#define MINIVALUE 0.00001
 #endif
 typedef float real;                    // Precision of float numbers
 
@@ -365,7 +366,8 @@ void *TrainModelThread(void *id) {
       // feature embedding learning
       for (i = 0; i < reSample; ++i){
         // printf("0\n");
-        for (b = -1; b < 0; ){
+        b = -1;
+        while(b < 0){
           if (b != -2 && sample > 0) {
             //down sampling
             // printf("1\n");
@@ -376,6 +378,7 @@ void *TrainModelThread(void *id) {
             // printf("b: %lld\n", b);
             b = cur_ins->cList[b];
             // printf("bNum: %lld\n", b);
+
             real ran = (sqrt(cCount[b] / (sample * tot_c_count)) + 1) * (sample * tot_c_count) / cCount[b];
             // printf("ran: %f\n", ran);
             NRAND
@@ -398,10 +401,11 @@ void *TrainModelThread(void *id) {
           if (0 == j){
             //pos
             target = next_random % cur_ins->c_num;
+            target = cur_ins->cList[target];
             label = 1;
           } else {
             //neg
-            target = table[(next_random >> 16) % table_size];
+            target = table[next_random % table_size];
             label = 0;
           }
           if (target == b) continue;
@@ -449,6 +453,7 @@ void *TrainModelThread(void *id) {
       }
       for (a = 0; a < c_length; ++a) c_error[a] /= i;
 #endif
+        
       for (a = 0; a < l_length; ++a) {
         z[a] = 0;
         z_error[a] = 0;

@@ -8,13 +8,12 @@ CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
 all: val hsre mhsre rhsre mrhsre modify mmodify dmodify rmodify
 
-
 hsre : hsre.c
 	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)
 rhsre : hsre.c
-	$(CC) hsre.c -o ${BIN_DIR}/rhsre $(CFLAGS) -DDROPOUT
+	$(CC) hsre.c -o ${BIN_DIR}/rhsre $(CFLAGS) -DDROPOUT -g
 mhsre : hsre.c
-	$(CC) hsre.c -o ${BIN_DIR}/mhsre $(CFLAGS) -DMARGIN	
+	$(CC) hsre.c -o ${BIN_DIR}/mhsre $(CFLAGS) -DMARGIN
 mrhsre : hsre.c
 	$(CC) hsre.c -o ${BIN_DIR}/mhsre $(CFLAGS) -DMARGIN	-DDROPOUT
 modify : modify.c
