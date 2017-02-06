@@ -42,6 +42,7 @@
 
 #ifdef DROPOUT
 #define DROPOUTRATIO 100000
+#define MINIVALUE 0.00001
 #endif
 typedef float real;                    // Precision of float numbers
 
@@ -301,6 +302,10 @@ void *TrainModelThread(void *id) {
   real *score_kl = (real *) calloc(l_length, sizeof(real));
   #endif
   struct training_ins tmpIns;
+
+  #ifdef DROPOUT 
+  long long dropoutLeft;
+  #endif
   while (cur_iter < iters) {
     //shuffle
     // printf("shuffled");
@@ -425,18 +430,18 @@ void *TrainModelThread(void *id) {
 
 #ifdef DROPOUT
       // printf("wrong\n");
-      long long dropoutLeft = 0;
+      dropoutLeft = 0;
       for (i = 0; i < cur_ins->c_num; ++i) {
         NRAND
-        if (next_random % 100000 > dropout) {
+        if (next_random % DROPOUTRATIO >= dropout) {
           dropoutLeft += 1;
           l1 = cur_ins->cList[i] * c_length;
           for (j = 0; j < c_length; ++j) c_error[j] += c[l1 + j];
         } else {
-          cur_ins->cList[i] = -1 * cur_ins->cList[i] - 1;
+          cur_ins->cList[i] = (-1 * cur_ins->cList[i]) - 1;
         }
       }
-      for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + 0.0001) / (dropoutLeft + 0.0001);
+      for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + MINIVALUE) / (dropoutLeft + MINIVALUE);
 #else
       for (i = 0; i < cur_ins->c_num; ++i) {
         l1 = cur_ins->cList[i] * c_length;
@@ -519,7 +524,7 @@ void *TrainModelThread(void *id) {
       //update predicted label && predicton model
       #ifdef MARGIN
         //updadte predicted label
-        g = -INFINITY; predicted_label = -1;//wrong
+        g = -INFINITY; predicted_label = -1; h = -10000;//wrong
         for (i = 0 ; i < l_size; ++i) {
           if (0 == no_lb) f = lb[i];
           else f = 0;
@@ -532,6 +537,9 @@ void *TrainModelThread(void *id) {
             g = f;
             predicted_label = i;
           }
+        }
+        if (h == -10000){
+          printf("error!!!\n");
         }
         // update l, lb
         if (h - g < 1) {
@@ -578,7 +586,7 @@ void *TrainModelThread(void *id) {
           else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
           sum_softmax += score_kl[i];
         }
-        if (debug_mode > 2) printf("softmax: %f, %f, %f", sum_softmax, g, expTable[EXP_TABLE_SIZE / 2]);
+        if (debug_mode > 2) printf("softmax: %f, %f\n", sum_softmax, g);
         // update l, lb
         // if (NONE_idx != label) {
         l1 = label * l_length;
@@ -669,7 +677,7 @@ void *TrainModelThread(void *id) {
       }
 #ifdef DROPOUT
       // printf("wrong\n");
-      for (a = 0; a < c_length; ++a) c_error[a] /= dropoutLeft; 
+      for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + MINIVALUE)/(dropoutLeft + MINIVALUE); 
       for (i = 0; i < cur_ins->c_num; ++i) {
         if (cur_ins->cList[i] >= 0) {
           l1 = cur_ins->cList[i] * c_length;

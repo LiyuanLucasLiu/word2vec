@@ -226,7 +226,7 @@ void TestModel() {
       }
       l2 = i * l_size;
       b = -1; g = 0;
-      for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
+      for (j = 0; j < l_size; ++j) {
         if (0 == no_lb) f = lb[j];
         else f = 0;
         l1 = j * l_length;
