@@ -510,7 +510,7 @@ void *TrainModelThread(void *id) {
 #ifdef DROPOUT
       // printf("wrong\n");
         for (i = 0; i < cur_ins->c_num; ++i) {
-          cur_ins->cFlag[i] = true;
+          cur_ins->cFlag[i] = false;
         }
 #endif
         ++cur_id;
