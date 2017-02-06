@@ -6,7 +6,7 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: val hsre mhsre rhsre mrhsre modify mmodify dmodify rmodify
+all: val hsre mhsre rhsre mrhsre #modify mmodify dmodify rmodify
 
 hsre : hsre.c
 	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)

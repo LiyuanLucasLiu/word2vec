@@ -1,9 +1,9 @@
 count=0
-for resample in 30
+for resample in 25 30 40
 do
 	for IterNum in 100 120 160
 	do
-		for lambda2 in 1 #0.3
+		for lambda2 in 1 0.3
 		do
 			for dropout in 0.3 0.5 0.6
 			do
@@ -26,8 +26,3 @@ do
 		done
 	done
 done
-
-##100 1 30 0.5 50 100
-##100 1 30 0.3 30 50
-
-../bin/rmodify -train /shared/data/ll2/CoType/data/intermediate/KBP/pure_train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/pure_test.data -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 1 -iter 100 -normL 0 -debug 2 -instances 133955 -test_ins 2031 -dropout 0.3

@@ -67,7 +67,7 @@ long long  *cCount;
 int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0; //special_none = 0, future work!! new labelling function...
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
-long long ins_num = 225977, ins_count_actual = 0;
+long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
 long long iters = 10;
 long print_every = 1000;
 real alpha = 0.025, starting_alpha, sample = 1e-4;
@@ -453,7 +453,7 @@ void *TrainModelThread(void *id) {
       }
       for (a = 0; a < c_length; ++a) c_error[a] /= i;
 #endif
-        
+
       for (a = 0; a < l_length; ++a) {
         z[a] = 0;
         z_error[a] = 0;
@@ -527,7 +527,7 @@ void *TrainModelThread(void *id) {
       // update params 
       
       //update predicted label && predicton model
-      #ifdef MARGIN
+      #ifdef MARGIN //not recommended
         //updadte predicted label
         g = -INFINITY; predicted_label = -1; h = -10000;//wrong
         for (i = 0 ; i < l_size; ++i) {
