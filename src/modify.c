@@ -1108,7 +1108,7 @@ int main(int argc, char **argv) {
   if (debug_mode > 1) printf("start training, iters: %lld \n ", iters);
   TrainModel();
   if (normL > 0) normalizeL();
-  if (debug_mode > 1) printf("Loading test file %s\n", test_file);
+  if (debug_mode > 1) printf("\nLoading test file %s\n", test_file);
   LoadTestingData();
   if (debug_mode > 1) printf("start Testing \n ");
   TestModel();
