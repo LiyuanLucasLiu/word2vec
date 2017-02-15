@@ -26,3 +26,5 @@ do
 		done
 	done
 done
+
+../bin/rmodify -train /shared/data/ll2/CoType/data/intermediate/KBP/pure_train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/pure_test.data -threads 20 -NONE_idx 6 -cleng 50 -lleng 100 -negative 10 -resample 10 -ignore_none 1 -iter $IterNum -alpha 0.025 -normL 0 -debug 1 -instances 133955 -test_instances 2031 -dropout $dropout

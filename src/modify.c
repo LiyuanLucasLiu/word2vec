@@ -78,7 +78,7 @@ struct training_ins * data, *test_ins;
 real *c, *l, *d, *cneg, *db, *lb;
 real *o;
 real ph1, ph2;
-real *sigTable, *expTable;
+real *sigTable, *expTable, *tanhTable;
 clock_t start;
 #ifdef DROPOUT 
 real dropout;
@@ -307,6 +307,8 @@ void *TrainModelThread(void *id) {
 
   #ifdef DROPOUT 
   long long dropoutLeft;
+  real *c_dropout = (real *) calloc(c_length, sizeof(real));
+  real *z_dropout = (real *) calloc(l_length, sizeof(real));
   #endif
   while (cur_iter < iters) {
     //shuffle
@@ -438,7 +440,7 @@ void *TrainModelThread(void *id) {
       dropoutLeft = 0;
       for (i = 0; i < cur_ins->c_num; ++i) {
         NRAND
-        if (next_random % DROPOUTRATIO >= dropout) {
+        if (next_random % DROPOUTRATIO >= dropout) { //notdropout
           dropoutLeft += 1;
           l1 = cur_ins->cList[i] * c_length;
           for (j = 0; j < c_length; ++j) c_error[j] += c[l1 + j];
@@ -455,8 +457,29 @@ void *TrainModelThread(void *id) {
       for (a = 0; a < c_length; ++a) c_error[a] /= i;
 #endif
 
+#ifdef DROPOUT
+      for (a = 0; a < c_length; ++a) {
+        NRAND
+        if (next_random % DROPOUTRATIO < dropout) { //dropout
+          c_error[a] = 0;
+          c_dropout[a] = 1;
+        } else {
+          c_dropout[a] = 0;
+        }
+      }
+#endif
+
       for (a = 0; a < l_length; ++a) {
         z[a] = 0;
+#ifdef DROPOUT
+        NRAND
+        if (next_random % DROPOUTRATIO < dropout) { //dropout
+          z_dropout[a] = 1;
+          continue;
+        } else {
+          z_dropout[a] = 0;
+        }
+#endif
         z_error[a] = 0;
         l1 = a * c_length;
         for (i = 0; i < c_length; ++i) z[a] += c_error[i] * o[l1 + i];
@@ -552,7 +575,11 @@ void *TrainModelThread(void *id) {
           l1 = label * l_length;
           if (debug_mode > 2) printf("update! %f, %f, %f\n",l[l1], z[0], z_error[0]);
           if (0 == no_lb) lb[label] += GCLIP(alpha - alpha * lambda3 * lb[label]);// - f - lambda3 * lb[label]);
-          for (a = 0; a < l_length; ++a){
+          for (a = 0; a < l_length; ++a)
+#ifdef DROPOUT
+            if(0 ==z_dropout[a])
+#endif 
+          {
             z_error[a] += alpha * l[l1 + a];
             l[l1 + a] += GCLIP(alpha * z[a] - alpha * lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
             // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
@@ -560,7 +587,11 @@ void *TrainModelThread(void *id) {
           // printf("%f\n", z_error[0]);
           l1 = predicted_label * l_length;
           if (0 == no_lb) lb[predicted_label] -= GCLIP(alpha + alpha * lambda3 * lb[predicted_label]);// + lambda3 * lb[i]);
-          for (a = 0; a < l_length; ++a) {
+          for (a = 0; a < l_length; ++a) 
+#ifdef DROPOUT
+            if(0 ==z_dropout[a])
+#endif 
+          {
             z_error[a] -= alpha * l[l1 + a];
             l[l1 + a] -= GCLIP(alpha * z[a] + alpha * lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
           }
@@ -599,7 +630,11 @@ void *TrainModelThread(void *id) {
         f = alpha * score_kl[label] / sum_softmax;
         if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
         if (0 == no_lb) lb[label] += GCLIP(alpha- lambda3 * lb[label]);// - f - lambda3 * lb[label]);
-        for (a = 0; a < l_length; ++a){
+        for (a = 0; a < l_length; ++a)
+#ifdef DROPOUT
+            if(0 ==z_dropout[a])
+#endif 
+        {
           z_error[a] += l[l1 + a] * (alpha - f);
           l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
           // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
@@ -609,7 +644,11 @@ void *TrainModelThread(void *id) {
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
           if (0 == no_lb) lb[i] -= GCLIP(f + lambda3 * lb[i]);// + lambda3 * lb[i]);
-          for (a = 0; a < l_length; ++a) {
+          for (a = 0; a < l_length; ++a) 
+#ifdef DROPOUT
+            if(0 ==z_dropout[a])
+#endif 
+          {
             z_error[a] -= l[l1 + a] * f;
             l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
           }
@@ -645,7 +684,11 @@ void *TrainModelThread(void *id) {
           g = alpha * lambda2 * (ph1 - ph2) * sigmoidD[a] * (1- sigmoidD[a]) / f;
           l1 = j * l_length;
           if (0 == no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);// - lambda3 * db[j]);
-          for (b = 0; b < l_length; ++b){
+          for (b = 0; b < l_length; ++b)
+#ifdef DROPOUT
+            if(0 ==z_dropout[b])
+#endif 
+          {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
           }
@@ -659,7 +702,11 @@ void *TrainModelThread(void *id) {
           g = alpha * lambda2 * (ph2 - ph1) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
           l1 = j * l_length;
           if (0== no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);// - lambda3 * db[j]);
-          for (b = 0; b< l_length; ++b) {
+          for (b = 0; b< l_length; ++b) 
+#ifdef DROPOUT
+            if(0 ==z_dropout[b])
+#endif 
+          {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
           }
@@ -670,7 +717,11 @@ void *TrainModelThread(void *id) {
 
       // update o
       if (debug_mode > 2) printf("2:%f, %f\n", z_error[0], o[0]);
-      for (a = 0; a < l_length; ++a) {
+      for (a = 0; a < l_length; ++a) 
+#ifdef DROPOUT
+        if(0 ==z_dropout[a])
+#endif 
+      {
         l1 = a * c_length;
         for (b = 0; b < c_length; ++b) o[l1 + b] += GCLIP(z_error[a] * c_error[b] - alpha * lambda5 * o[l1 + b]);// - lambda3 * o[l1 + b]);
       }
@@ -683,11 +734,17 @@ void *TrainModelThread(void *id) {
       }
 #ifdef DROPOUT
       // printf("wrong\n");
-      for (a = 0; a < c_length; ++a) c_error[a] = (c_error[a] + MINIVALUE)/(dropoutLeft + MINIVALUE); 
+      for (a = 0; a < c_length; ++a) {
+        if (0==c_dropout[a]) 
+          c_error[a] = (c_error[a] + MINIVALUE)/(dropoutLeft + MINIVALUE);
+        else
+          c_error[a] = 0;
+      }  
       for (i = 0; i < cur_ins->c_num; ++i) {
         if (cur_ins->cList[i] >= 0) {
           l1 = cur_ins->cList[i] * c_length;
-          for (j = 0; j < c_length; ++j) c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);// - lambda3 * c[l1 + j]);
+          for (j = 0; j < c_length; ++j) if(0==c_dropout[j])
+            c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);// - lambda3 * c[l1 + j]);
         } else {
           cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
         }
@@ -753,137 +810,6 @@ void TrainModel() {
   free(table);
   free(pt);
 }
-
-// void SaveModel() {  
-//   FILE *fo = fopen(test_file, "wb");
-//   long long a, b;
-//   if (fo == NULL) {
-//     fprintf(stderr, "Cannot open %s: permission denied\n", test_file);
-//     exit(1);
-//   }
-//   real sum_check = 0;
-//   fprintf(fo, "%lld %lld %lld %lld %lld %lld %d %d %d\n", c_size, c_length, l_size, l_length, d_size, NONE_idx, no_lb, no_db, ignore_none);
-//   if (binary) {
-//     for (b = 0; b < c_size; ++b) {
-//       for (a = 0; a < c_length; ++a) {
-//         sum_check += c[b * c_length + a];
-//         BWRITE(c[b * c_length + a], fo)
-//         DDMode({printf("%f, ", c[b * c_length + a]);})
-//       }
-//       DDMode({printf("\n");})
-//     }
-//     BWRITE(sum_check, fo)
-//     sum_check = 0;
-//     if (0==no_lb) {
-//       for (b = 0; b < l_size; ++b) {
-//         sum_check += lb[b];
-//         BWRITE(lb[b], fo)
-//       }
-//       BWRITE(sum_check, fo)
-//       sum_check = 0;
-//     }
-//     for (b = 0; b < l_size; ++b) {
-//       for (a = 0; a < l_length; ++a) {
-//         sum_check += l[b * l_length + a];
-//         BWRITE(l[b * l_length + a], fo)
-//         DDMode({printf("%f, ", l[b * l_length + a]);})
-//       }
-//       DDMode({printf("\n");})
-//     }
-//     BWRITE(sum_check, fo)
-//     sum_check = 0;
-//     for (b = 0; b < l_length; ++b) {
-//       for (a = 0; a < c_length; ++a) {
-//         sum_check += o[b * c_length + a];
-//         BWRITE(o[b * c_length + a], fo)
-//         DDMode({printf("%f,", o[b * c_length + a]);})
-//         // printf("%lld, %lld, %f, %f\n", b, a, sum_check, o[b * c_length + a]);
-//       }
-//       DDMode({printf("\n");})
-//     }
-//     // printf("%lld, %lld, %f, %f, %f, %f\n", l_length, c_length, o[1], o[l_length+1], o[2*l_length+1], sum_check);
-//     BWRITE(sum_check, fo)
-//     BWRITE(lambda1, fo)
-//     BWRITE(lambda2, fo)
-//     BWRITE(lambda3, fo)
-//     BWRITE(lambda4, fo)
-//     BWRITE(lambda5, fo)
-//     BWRITE(lambda6, fo)
-//     BWRITE(ph1, fo)
-//     BWRITE(ph2, fo)
-//     for (b = 0; b < c_size; ++b) {
-//       for (a = 0; a < c_length; ++a) BWRITE(cneg[b * c_length + a], fo)
-//     }
-//     if (0 == no_db) for (b = 0; b < d_size; ++b) BWRITE(db[b], fo)
-//     for (b = 0; b < d_size; ++b) {
-//       for (a = 0; a < l_length; ++a) BWRITE(d[b * l_length + a], fo)
-//     }
-//   } else {
-//     for (b = 0; b < c_size; ++b) {
-//       for (a = 0; a < c_length; ++a) {
-//         sum_check += c[b * c_length + a];
-//         SWRITE(c[b * c_length + a], fo)
-//       }
-//       fprintf(fo, "\n");
-//     }
-//     SWRITE(sum_check, fo)
-//     fprintf(fo, "\n");
-//     sum_check = 0;
-//     if (0==no_lb) {
-//       for (b = 0; b < l_size; ++b) {
-//         sum_check += lb[b];
-//         SWRITE(lb[b], fo)
-//       }
-//       fprintf(fo, "\n"); 
-//       SWRITE(sum_check, fo)
-//       fprintf(fo, "\n");
-//       sum_check = 0;
-//     }
-//     for (b = 0; b < l_size; ++b) {
-//       for (a = 0; a < l_length; ++a) {
-//         sum_check += l[b * l_length + a];
-//         SWRITE(l[b * l_length + a], fo)
-//       }
-//       fprintf(fo, "\n");
-//     }
-//     SWRITE(sum_check, fo)
-//     fprintf(fo, "\n");
-//     sum_check = 0;
-//     for (b = 0; b < l_length; ++b) {
-//       for (a = 0; a < c_length; ++a) {
-//         sum_check += l[b * l_length + a];
-//         SWRITE(o[b * c_length + a], fo)
-//       }
-//       fprintf(fo, "\n");
-//     }
-//     SWRITE(sum_check, fo)
-//     fprintf(fo, "\n");
-//     SWRITE(lambda1, fo)
-//     SWRITE(lambda2, fo)
-//     SWRITE(lambda3, fo)
-//     SWRITE(lambda4, fo)
-//     SWRITE(lambda5, fo)
-//     SWRITE(lambda6, fo)
-//     SWRITE(ph1, fo)
-//     SWRITE(ph2, fo)
-//     fprintf(fo, "\n");
-//     for (b = 0; b < c_size; ++b) {
-//       // printf("%f,", cneg[b* c_length]);
-//       for (a = 0; a < c_length; ++a) SWRITE(cneg[b * c_length + a], fo)
-//       fprintf(fo, "\n");
-//     }
-//     if (0 == no_db) {
-//       for (b = 0; b < d_size; ++b) SWRITE(db[b], fo)
-//       fprintf(fo, "\n");
-//     }
-//     for (b = 0; b < d_size; ++b) {
-//       // printf("%f,", d[b* l_length]);
-//       for (a = 0; a < l_length; ++a) SWRITE(d[b * l_length + a], fo)
-//       fprintf(fo, "\n");
-//     }
-//   }
-//   fclose(fo);
-// }
 
 void TestModel() {
   long long i, j, a, b;
@@ -1093,14 +1019,18 @@ int main(int argc, char **argv) {
 #endif
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   sigTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
+  tanhTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   if (sigTable == NULL) {
     fprintf(stderr, "out of memory\n");
     exit(1);
   }
+  printf("Starting\n");
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
     expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
     sigTable[i] = expTable[i] / (expTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
+    tanhTable[i] = (expTable[i] * expTable[i] - 1)/(expTable[i] * expTable[i] + 1);
   }
+
   if (debug_mode > 1) printf("Loading training file %s\n", train_file);
   LoadTrainingData();
   if (debug_mode > 1) printf("Initialization\n");
@@ -1116,5 +1046,6 @@ int main(int argc, char **argv) {
   DestroyNet();
   free(expTable);
   free(sigTable);
+  free(tanhTable);
   return 0;
 }
