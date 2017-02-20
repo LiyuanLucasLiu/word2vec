@@ -3,7 +3,7 @@ for resample in 10 15
 do
 	for IterNum in 30 60 90 120
 	do
-		for negative in 5 10
+		for negative in 10 15 20
 		do
 			for dropout in 0 0.3 0.5 0.6 0.7
 			do
@@ -27,4 +27,4 @@ do
 	done
 done
 
-../bin/rmodify -train /shared/data/ll2/CoType/data/intermediate/KBP/pure_train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/pure_test.data -threads 20 -NONE_idx 6 -cleng 50 -lleng 100 -negative 10 -resample 10 -ignore_none 1 -iter $IterNum -alpha 0.025 -normL 0 -debug 1 -instances 133955 -test_instances 2031 -dropout $dropout
+../bin/armodify -train /shared/data/ll2/CoType/data/intermediate/KBP/pure_train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/pure_test.data -threads 20 -NONE_idx 6 -cleng 50 -lleng 100 -negative 10 -resample 10 -ignore_none 1 -iter 100 -alpha 0.025 -normL 0 -debug 2 -instances 133955 -test_instances 2031 -dropout 0.3

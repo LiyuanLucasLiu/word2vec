@@ -470,11 +470,12 @@ void *TrainModelThread(void *id) {
 #endif
 
       for (a = 0; a < l_length; ++a) {
-        z[a] = 0;
+        f = 0;
 #ifdef DROPOUT
         NRAND
         if (next_random % DROPOUTRATIO < dropout) { //dropout
           z_dropout[a] = 1;
+          z[a] = 0;
           continue;
         } else {
           z_dropout[a] = 0;
@@ -482,7 +483,14 @@ void *TrainModelThread(void *id) {
 #endif
         z_error[a] = 0;
         l1 = a * c_length;
-        for (i = 0; i < c_length; ++i) z[a] += c_error[i] * o[l1 + i];
+        for (i = 0; i < c_length; ++i) f += c_error[i] * o[l1 + i];
+#ifdef ACTIVE
+        if (f < -MAX_EXP) z[a] = -1;
+        else if (f > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = f;
+#endif
       }
       // printf("3p\n");
       // infer true labels
@@ -714,7 +722,11 @@ void *TrainModelThread(void *id) {
           // printf("%f \n", z_error[0]);
         }
       }
-
+#ifdef ACTIVE
+      for (a = 0; a < l_length; ++a) {
+        z_error[a] *= (1 - z[a]*z[a]);
+      }
+#endif      
       // update o
       if (debug_mode > 2) printf("2:%f, %f\n", z_error[0], o[0]);
       for (a = 0; a < l_length; ++a) 
@@ -833,9 +845,16 @@ void TestModel() {
       }
       for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
       for (a = 0; a < l_length; ++a){
-        z[a] = 0;
+        g = 0;
         l1 = a * c_length;
-        for (j = 0; j < c_length; ++j) z[a] += cs[j] * o[l1 + j];
+        for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
+#ifdef ACTIVE
+        if (g < -MAX_EXP) z[a] = -1;
+        else if (g > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = g;
+#endif
       }
       // for (a = 0; a < l_length; ++a)
       // l2 = i * l_size;
@@ -1024,7 +1043,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "out of memory\n");
     exit(1);
   }
-  printf("Starting\n");
+  if (debug_mode > 1) printf("Starting\n");
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
     expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
     sigTable[i] = expTable[i] / (expTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
