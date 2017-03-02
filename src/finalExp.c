@@ -64,7 +64,7 @@ char train_file[MAX_STRING], test_file[MAX_STRING], val_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0; //special_none = 0, future work!! new labelling function...
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0, special_none = 0 ;//, future work!! new labelling function...
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
 long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
@@ -559,81 +559,33 @@ void *TrainModelThread(void *id) {
       // update params 
       
       //update predicted label && predicton model
-      #ifdef MARGIN //not recommended
-        //updadte predicted label
-        g = -INFINITY; predicted_label = -1; h = -10000;//wrong
-        for (i = 0 ; i < l_size; ++i) {
-          if (0 == no_lb) f = lb[i];
-          else f = 0;
-          l1 = i * l_length;
-          for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-          // score_kl[i] = f;
-          if (i == label) {
-            h = f;
-          } else if (f > g) {
-            g = f;
-            predicted_label = i;
-          }
+      //updadte predicted label
+      sum_softmax = 0.0;
+      g = -INFINITY; predicted_label = -1;
+      for (i = 0 ; i < l_size; ++i) {
+        if (0 == no_lb) f = lb[i];
+        else f = 0;
+        l1 = i * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        // printf("1");
+        DDMode({printf("(%f, %lld), ", f, i);})
+        score_kl[i] = f;
+        if (f > g) {
+          g = f;
+          predicted_label = i;
         }
-        if (h == -10000){
-          printf("error!!!\n");
-        }
-        // update l, lb
-        if (h - g < 1) {
-          l1 = label * l_length;
-          if (debug_mode > 2) printf("update! %f, %f, %f\n",l[l1], z[0], z_error[0]);
-          if (0 == no_lb) lb[label] += GCLIP(alpha - alpha * lambda3 * lb[label]);// - f - lambda3 * lb[label]);
-          for (a = 0; a < l_length; ++a)
-#ifdef DROPOUT
-            if(0 ==z_dropout[a])
-#endif 
-          {
-            z_error[a] += alpha * l[l1 + a];
-            l[l1 + a] += GCLIP(alpha * z[a] - alpha * lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-            // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
-          }
-          // printf("%f\n", z_error[0]);
-          l1 = predicted_label * l_length;
-          if (0 == no_lb) lb[predicted_label] -= GCLIP(alpha + alpha * lambda3 * lb[predicted_label]);// + lambda3 * lb[i]);
-          for (a = 0; a < l_length; ++a) 
-#ifdef DROPOUT
-            if(0 ==z_dropout[a])
-#endif 
-          {
-            z_error[a] -= alpha * l[l1 + a];
-            l[l1 + a] -= GCLIP(alpha * z[a] + alpha * lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
-          }
-        }
-        predicted_label = h > g ? label : predicted_label;
-      #else
-        // printf("kl: ");
-        //updadte predicted label
-        sum_softmax = 0.0;
-        g = -INFINITY; predicted_label = -1;
-        for (i = 0 ; i < l_size; ++i) {
-          if (0 == no_lb) f = lb[i];
-          else f = 0;
-          l1 = i * l_length;
-          for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-          // printf("1");
-          DDMode({printf("(%f, %lld), ", f, i);})
-          score_kl[i] = f;
-          if (f > g) {
-            g = f;
-            predicted_label = i;
-          }
-        }
-        for (i = 0; i < l_size; ++i) {
-          f = score_kl[i] - g;
-          if (debug_mode > 2) printf("f: %f, %f, %f\n", f, g, score_kl[i]);
-          if (f < -MAX_EXP) score_kl[i] = 0;
-          else if (f > MAX_EXP) printf("error! softmax over 1!\n");
-          else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-          sum_softmax += score_kl[i];
-        }
-        if (debug_mode > 2) printf("softmax: %f, %f\n", sum_softmax, g);
-        // update l, lb
-        // if (NONE_idx != label) {
+      }
+      for (i = 0; i < l_size; ++i) {
+        f = score_kl[i] - g;
+        if (debug_mode > 2) printf("f: %f, %f, %f\n", f, g, score_kl[i]);
+        if (f < -MAX_EXP) score_kl[i] = 0;
+        else if (f > MAX_EXP) printf("error! softmax over 1!\n");
+        else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+        sum_softmax += score_kl[i];
+      }
+      if (debug_mode > 2) printf("softmax: %f, %f\n", sum_softmax, g);
+      // update l, lb
+      if (!special_none || NONE_idx != label) {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
         if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
@@ -661,21 +613,20 @@ void *TrainModelThread(void *id) {
             l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
           }
         }
-        // } else {
-        //   // printf("Wrong\n");
-        //   g = alpha / (l_size - 1);
-        //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
-        //     f = g - alpha * score_kl[label] / sum_softmax;
-        //     if (0 == no_lb) lb[i] += GCLIP(f - lambda3 * lb[i]);// - lambda3 * lb[i]);
-        //     l1 = i * l_length;
-        //     for (a = 0; a < l_length; ++a){
-        //       z_error[a] += l[l1 + a] * f;
-        //       l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-        //     }
-        //   }
-        // }
-        if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
-      #endif
+      } else {
+        // printf("Wrong\n");
+        g = alpha / (l_size - 1);
+        for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+          f = g - alpha * score_kl[label] / sum_softmax;
+          if (0 == no_lb) lb[i] += GCLIP(f - lambda3 * lb[i]);// - lambda3 * lb[i]);
+          l1 = i * l_length;
+          for (a = 0; a < l_length; ++a){
+            z_error[a] += l[l1 + a] * f;
+            l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
+          }
+        }
+      }
+      if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
 
       DDMode({printf("label: %lld, predicted: %lld\n", label, predicted_label);})
       correct_ins += (label == predicted_label);
@@ -1197,7 +1148,7 @@ int main(int argc, char **argv) {
   // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lleng", argc, argv)) > 0) l_length = atoi(argv[i + 1]);
-  // if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
@@ -1216,7 +1167,6 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iters = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
-  // else if (0 != special_none) {fprintf(stderr, "none_idx is required" );}
   if ((i = ArgPos((char *)"-no_lb", argc, argv)) > 0) no_lb = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-no_db", argc, argv)) > 0) no_db = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-normL", argc, argv)) > 0) normL = atoi(argv[i + 1]);
