@@ -7,7 +7,7 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: finalExp repExp#val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify mrmodify
+all: nfinalExp finalExp repExp#val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify mrmodify
 
 # hsre : hsre.c
 # 	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)
@@ -29,8 +29,8 @@ all: finalExp repExp#val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify
 # 	$(CC) modify.c -o ${BIN_DIR}/mmodify $(CFLAGS) -DMARGIN -DDROPOUT
 finalExp : finalExp.c
 	$(CC) finalExp.c -o ${BIN_DIR}/finalExp $(CFLAGS) -DDROPOUT -DACTIVE	
-# nfinalExp : finalExp.c
-# 	$(CC) finalExp.c -o ${BIN_DIR}/nfinalExp $(CFLAGS) -DDROPOUT -DACTIVE	
+nfinalExp : finalExp.c
+	$(CC) nfinalExp.c -o ${BIN_DIR}/nfinalExp $(CFLAGS) -DDROPOUT -DACTIVE	
 repExp : entityRepresentation.c
 	$(CC) entityRepresentation.c -o ${BIN_DIR}/repExp $(CFLAGS) -DDROPOUT -DACTIVE	
 val : val.c
