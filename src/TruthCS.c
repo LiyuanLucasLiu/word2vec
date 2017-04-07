@@ -60,21 +60,22 @@ struct training_ins {
   struct supervision *supList;
 };
 
-char train_file[MAX_STRING], test_file[MAX_STRING], output_file[MAX_STRING];
+char train_file[MAX_STRING], test_file[MAX_STRING], val_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 1, error_log = 0, normL = 0; //special_none = 0, future work!! new labelling function...
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0, special_none = 0, printVal = 0 ;//, future work!! new labelling function...
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
 long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
-long long test_ins_num = 2111;
+long long test_ins_num = 1900, val_ins_num = 211;
 long long iters = 10;
 long print_every = 1000;
 real alpha = 0.025, starting_alpha, sample = 1e-4;
 real grad_clip = 5;
+long long useEntropy=1;
 
-struct training_ins * data, *test_ins;
+struct training_ins * data, *test_ins, *val_ins;
 real *c, *l, *d, *cneg, *db, *lb;
 real *o;
 real ph1, ph2;
@@ -242,16 +243,12 @@ void LoadTrainingData(){
   
   data = (struct training_ins *) calloc(ins_num, sizeof(struct training_ins));
   while(curInsCount--){
-    // printf("curInsCount: %lld\n", curInsCount);
-    data[curInsCount].id = 1;
-    // printf("curInsCount: %lld\n", data[curInsCount].id);
     ReadWord(&data[curInsCount].id, fin);
-    // putchar('a');
     ReadWord(&data[curInsCount].c_num, fin);
     ReadWord(&data[curInsCount].sup_num, fin);
+    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", data[curInsCount].c_num, data[curInsCount].id, data[curInsCount].sup_num);
     data[curInsCount].cList = (long long *) calloc(data[curInsCount].c_num, sizeof(long long));
     data[curInsCount].supList = (struct supervision *) calloc(data[curInsCount].sup_num, sizeof(struct supervision));
-    // printf("%lld, %lld, %lld\n", data[curInsCount].id, data[curInsCount].c_num, data[curInsCount].sup_num);
 
     for (a = data[curInsCount].c_num; a; --a) {
       ReadWord(&b, fin);
@@ -271,6 +268,7 @@ void LoadTrainingData(){
     DDMode({printf("\n");})
   }
   c_size++; d_size++; l_size++;
+  fclose(fin);
   if ((debug_mode > 1)) {
     // printf("load Done\n");
     // printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
@@ -330,24 +328,24 @@ void *TrainModelThread(void *id) {
       // printf("id:%lld\n", cur_id);
       if (cur_id - last_id > 1000) {
         ins_count_actual += cur_id - last_id;
-        if ((debug_mode > 1)) {
-          now = clock();
-          printf("\rAlpha: %f \t Progress: %.2f%% \t Words/thread/sec: %.2fk \t updated on %.2f%% \t corrected %.2f%% \t on %lld |", alpha,
+        now = clock();
+        if (debug_mode > 1) {
+          printf("\rAlpha: %f \t Progress: %.2f%% \t Words/thread/sec: %.2fk \t corrected %.2f%% \t on %lld |", alpha,
             ins_count_actual / (real)(ins_num * iters + 1) * 100,
             ins_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000),
-            100 * (update_ins_count) / ((real)(cur_id - last_id + 1)), 
+            // 100 * (update_ins_count) / ((real)(cur_id - last_id + 1)), 
             100 * correct_ins / ((real) update_ins_count + 1),
             update_ins_count);
           fflush(stdout);
-          if (error_log) {
-            fprintf(stderr, "Alpha: %f \t Progress: %.2f%% \t Words/thread/sec: %.2fk \t updated on %.2f%% \t corrected %.2f%% \t on %lld \n", alpha,
-              ins_count_actual / (real)(ins_num * iters + 1) * 100,
-              ins_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000),
-              100 * (update_ins_count) / ((real)(cur_id - last_id + 1)), 
-              100 * correct_ins / ((real) update_ins_count + 1),
-              update_ins_count);
-            fflush(stderr);
-          }
+        }
+        if (error_log) {
+          fprintf(stderr, "\rAlpha: %f \t Progress: %.2f%% \t Words/thread/sec: %.2fk \t corrected %.2f%% \t on %lld |", alpha,
+            ins_count_actual / (real)(ins_num * iters + 1) * 100,
+            ins_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000),
+            // 100 * (update_ins_count) / ((real)(cur_id - last_id + 1)), 
+            100 * correct_ins / ((real) update_ins_count + 1),
+            update_ins_count);
+          fflush(stderr);
         }
         last_id = cur_id;
         update_ins_count = 0;
@@ -481,7 +479,6 @@ void *TrainModelThread(void *id) {
           z_dropout[a] = 0;
         }
 #endif
-        z_error[a] = 0;
         l1 = a * c_length;
         for (i = 0; i < c_length; ++i) f += c_error[i] * o[l1 + i];
 #ifdef ACTIVE
@@ -492,6 +489,7 @@ void *TrainModelThread(void *id) {
         z[a] = f;
 #endif
       }
+      for (a = 0; a < l_length; ++a) z_error[a] = 0;
       // printf("3p\n");
       // infer true labels
       // score here is prob, which is the larger the better
@@ -559,85 +557,37 @@ void *TrainModelThread(void *id) {
       // update params 
       
       //update predicted label && predicton model
-      #ifdef MARGIN //not recommended
-        //updadte predicted label
-        g = -INFINITY; predicted_label = -1; h = -10000;//wrong
-        for (i = 0 ; i < l_size; ++i) {
-          if (0 == no_lb) f = lb[i];
-          else f = 0;
-          l1 = i * l_length;
-          for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-          // score_kl[i] = f;
-          if (i == label) {
-            h = f;
-          } else if (f > g) {
-            g = f;
-            predicted_label = i;
-          }
+      //updadte predicted label
+      sum_softmax = 0.0;
+      g = -INFINITY; predicted_label = -1;
+      for (i = 0 ; i < l_size; ++i) {
+        if (0 == no_lb) f = lb[i];
+        else f = 0;
+        l1 = i * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        // printf("1");
+        DDMode({printf("(%f, %lld), ", f, i);})
+        score_kl[i] = f;
+        if (f > g) {
+          g = f;
+          predicted_label = i;
         }
-        if (h == -10000){
-          printf("error!!!\n");
-        }
-        // update l, lb
-        if (h - g < 1) {
-          l1 = label * l_length;
-          if (debug_mode > 2) printf("update! %f, %f, %f\n",l[l1], z[0], z_error[0]);
-          if (0 == no_lb) lb[label] += GCLIP(alpha - alpha * lambda3 * lb[label]);// - f - lambda3 * lb[label]);
-          for (a = 0; a < l_length; ++a)
-#ifdef DROPOUT
-            if(0 ==z_dropout[a])
-#endif 
-          {
-            z_error[a] += alpha * l[l1 + a];
-            l[l1 + a] += GCLIP(alpha * z[a] - alpha * lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-            // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
-          }
-          // printf("%f\n", z_error[0]);
-          l1 = predicted_label * l_length;
-          if (0 == no_lb) lb[predicted_label] -= GCLIP(alpha + alpha * lambda3 * lb[predicted_label]);// + lambda3 * lb[i]);
-          for (a = 0; a < l_length; ++a) 
-#ifdef DROPOUT
-            if(0 ==z_dropout[a])
-#endif 
-          {
-            z_error[a] -= alpha * l[l1 + a];
-            l[l1 + a] -= GCLIP(alpha * z[a] + alpha * lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
-          }
-        }
-        predicted_label = h > g ? label : predicted_label;
-      #else
-        // printf("kl: ");
-        //updadte predicted label
-        sum_softmax = 0.0;
-        g = -INFINITY; predicted_label = -1;
-        for (i = 0 ; i < l_size; ++i) {
-          if (0 == no_lb) f = lb[i];
-          else f = 0;
-          l1 = i * l_length;
-          for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-          // printf("1");
-          DDMode({printf("(%f, %lld), ", f, i);})
-          score_kl[i] = f;
-          if (f > g) {
-            g = f;
-            predicted_label = i;
-          }
-        }
-        for (i = 0; i < l_size; ++i) {
-          f = score_kl[i] - g;
-          if (debug_mode > 2) printf("f: %f, %f, %f\n", f, g, score_kl[i]);
-          if (f < -MAX_EXP) score_kl[i] = 0;
-          else if (f > MAX_EXP) printf("error! softmax over 1!\n");
-          else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-          sum_softmax += score_kl[i];
-        }
-        if (debug_mode > 2) printf("softmax: %f, %f\n", sum_softmax, g);
-        // update l, lb
-        // if (NONE_idx != label) {
+      }
+      for (i = 0; i < l_size; ++i) {
+        f = score_kl[i] - g;
+        if (debug_mode > 2) printf("f: %f, %f, %f\n", f, g, score_kl[i]);
+        if (f < -MAX_EXP) score_kl[i] = 0;
+        else if (f > MAX_EXP) printf("error! softmax over 1!\n");
+        else score_kl[i] = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+        sum_softmax += score_kl[i];
+      }
+      if (debug_mode > 2) printf("softmax: %f, %f\n", sum_softmax, g);
+      // update l, lb
+      if (!special_none || NONE_idx != label) {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
         if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-        if (0 == no_lb) lb[label] += GCLIP(alpha- lambda3 * lb[label]);// - f - lambda3 * lb[label]);
+        if (0 == no_lb) lb[label] += GCLIP(alpha - f - lambda3 * lb[label]);// - f - lambda3 * lb[label]);
         for (a = 0; a < l_length; ++a)
 #ifdef DROPOUT
             if(0 ==z_dropout[a])
@@ -661,24 +611,24 @@ void *TrainModelThread(void *id) {
             l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
           }
         }
-        // } else {
-        //   // printf("Wrong\n");
-        //   g = alpha / (l_size - 1);
-        //   for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
-        //     f = g - alpha * score_kl[label] / sum_softmax;
-        //     if (0 == no_lb) lb[i] += GCLIP(f - lambda3 * lb[i]);// - lambda3 * lb[i]);
-        //     l1 = i * l_length;
-        //     for (a = 0; a < l_length; ++a){
-        //       z_error[a] += l[l1 + a] * f;
-        //       l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-        //     }
-        //   }
-        // }
-        if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
-      #endif
+      } else {
+        // printf("Wrong\n");
+        g = alpha / (l_size - 1);
+        for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
+          f = g - score_kl[i] / sum_softmax;
+          if (0 == no_lb) lb[i] += GCLIP(g - lambda3 * lb[i]);// - lambda3 * lb[i]);
+          l1 = i * l_length;
+          for (a = 0; a < l_length; ++a){
+            z_error[a] += l[l1 + a] * f;
+            l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
+          }
+        }
+      }
+      if (debug_mode > 2) printf("1:%f, %f, %f, %f, %f, %f, %f\n", z_error[0], o[0], z[0], l[0], f, score_kl[label], sum_softmax);
 
       DDMode({printf("label: %lld, predicted: %lld\n", label, predicted_label);})
-      correct_ins += (label == predicted_label);
+      correct_ins += (label == predicted_label) && (label != NONE_idx);
+      update_ins_count += (label != NONE_idx);
       // }
       // update d, db
       // update ph1, ph2
@@ -700,8 +650,6 @@ void *TrainModelThread(void *id) {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
           }
-          // printf("%lld %lld %f %f %f %f %f %f %f\n", j, l1, lambda2, g, d[l1], z[0], (z[0] * g), GCLIP(z[0] * g), sigmoidD[a]);
-          // printf("ll: %f \n", z_error[0]);
           //ph1, ph2
           // ph1[j] += alpha * lambda2 * sigmoidD[a] / f;
           // ph2[j] += alpha * lambda2 * (1 - sigmoidD[a]) / f;
@@ -718,8 +666,6 @@ void *TrainModelThread(void *id) {
             z_error[b] += d[l1 + b] * g;
             d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
           }
-          // printf("%lld %lld %f %f %f %f %f %f %f\n", j, l1, lambda2, g, d[l1], z[0], (z[0] * g), GCLIP(z[0] * g), sigmoidD[a]);
-          // printf("%f \n", z_error[0]);
         }
       }
 #ifdef ACTIVE
@@ -770,7 +716,6 @@ void *TrainModelThread(void *id) {
 #endif
       // update index
       ++cur_id;
-      ++update_ins_count;
     }
     ++cur_iter;
   }
@@ -844,8 +789,16 @@ real calculateEntropy(real *tmp_predict_scores){
   return f;
 }
 
+real calculateInnerProd(real *tmp_predict_scores){
+  long long i;
+  real g = -INFINITY;
+  for (i = 0; i < l_size; ++i) if (i != NONE_idx){
+    g = g > tmp_predict_scores[i] ? g : tmp_predict_scores[i];
+  }
+  return -g;
+}
+
 void EvaluateModel() {
-  FILE *fout = fopen(output_file, "w");
   long long i, j, a, b;
   long long l1;
   real f, g;
@@ -854,8 +807,8 @@ void EvaluateModel() {
   if (0 != ignore_none) {
     long long correct = 0;
     long long act_ins_num = 0;
-    for (i = 0; i < test_ins_num; ++i){
-      struct training_ins * cur_ins = test_ins + i;
+    for (i = 0; i < val_ins_num; ++i){
+      struct training_ins * cur_ins = val_ins + i;
       //calculate z;
       if (cur_ins->supList[0].label == NONE_idx)
         continue;
@@ -898,16 +851,193 @@ void EvaluateModel() {
       if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
       correct += (b == cur_ins->supList[0].label);
       ++act_ins_num;
-      fprintf(fout, "%lld,%lld", b, cur_ins->supList[0].label);
-      for (a = 0; a < l_length; ++a)
-        fprintf(fout, ",%f", z[a]);
-      fprintf(fout, "\n");
     }
-    printf("%f\n", (real) correct / act_ins_num * 100);
+    if (0 == printVal) printf("%f, ", (real) correct / act_ins_num * 100);
+    correct = 0;
+    act_ins_num = 0;
+    for (i = 0; i < test_ins_num; ++i){
+      struct training_ins * cur_ins = test_ins + i;
+      //calculate z;
+      if (cur_ins->supList[0].label == NONE_idx)
+        continue;
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        g = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
+#ifdef ACTIVE
+        if (g < -MAX_EXP) z[a] = -1;
+        else if (g > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = g;
+#endif
+      }
+      // for (a = 0; a < l_length; ++a)
+      // l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        if (debug_mode > 2) printf("%f, ", f);
+        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
+        // scores[l2 + j] = f;
+      }
+      // predicted_label[i] = b;
+      if (printVal) printf("%lld, %lld\n", cur_ins->supList[0].label, b);
+      if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
+      correct += (b == cur_ins->supList[0].label);
+      ++act_ins_num;
+    }
+    if (0 == printVal) printf("%f\n", (real) correct / act_ins_num * 100);
+  } else {
+    long long correct = 0;
+    long long act_ins_num = 0, act_pred_num = 0;
+    real *entropy_list = (real *) calloc(val_ins_num, sizeof(real));
+    long long *label_list = (long long *) calloc(val_ins_num, sizeof(long long));
+    real *predict_scores = (real *) calloc(l_size, sizeof(real));
+
+    for (i = 0; i < val_ins_num; ++i){
+      struct training_ins * cur_ins = val_ins + i;
+      //calculate z;
+      act_ins_num += (cur_ins->supList[0].label == NONE_idx ? 0 : 1);
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        g = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
+#ifdef ACTIVE
+        if (g < -MAX_EXP) z[a] = -1;
+        else if (g > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = g;
+#endif
+      }
+      // l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        predict_scores[j] = f;
+        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
+        // scores[l2 + j] = f;
+      }
+      label_list[i] = (b==cur_ins->supList[0].label) && (NONE_idx != b);
+      if (NONE_idx != b) {
+        if (useEntropy) entropy_list[i] = calculateEntropy(predict_scores);
+        else entropy_list[i] = calculateInnerProd(predict_scores);
+      } else {
+        entropy_list[i] = INFINITY;
+      }
+    }
+    real min_entropy = INFINITY, max_entropy = -INFINITY, best_pre = -INFINITY, best_rec = -INFINITY, best_f1 = -INFINITY, best_threshold = 1;
+
+    for (i = 0; i < val_ins_num; ++i) if (entropy_list[i] < INFINITY) {
+      min_entropy = min_entropy < entropy_list[i] ? min_entropy : entropy_list[i];
+      max_entropy = max_entropy > entropy_list[i] ? max_entropy : entropy_list[i]; 
+    }
+    max_entropy = (max_entropy - min_entropy)/100;
+    for (a = 1; a < 100; ++a) {
+      correct = 0;
+      act_pred_num = 0;
+      f = min_entropy + max_entropy * a;
+      for (i = 0; i < val_ins_num; ++i){
+        if (entropy_list[i] < f) {
+          correct += label_list[i];
+          ++act_pred_num;
+        }
+      }
+      if ((real) 200 * correct / (act_pred_num + act_ins_num) > best_f1) {
+        best_f1 = (real) 200 * correct / (act_pred_num + act_ins_num);
+        best_pre = 100*(correct+MINIVALUE)/(act_pred_num+MINIVALUE);
+        best_rec = 100*(correct+MINIVALUE)/(act_ins_num+MINIVALUE);
+        best_threshold = f;
+      }
+    }
+
+    if (0 == printVal) printf("%f,%f,%f,", best_pre, best_rec, best_f1);
+
+    if (printVal) printf("\n");
+
+    for (i = 0; i < test_ins_num; ++i){
+      struct training_ins * cur_ins = test_ins + i;
+      //calculate z;
+      act_ins_num += (cur_ins->supList[0].label == NONE_idx ? 0 : 1);
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        g = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
+#ifdef ACTIVE
+        if (g < -MAX_EXP) z[a] = -1;
+        else if (g > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = g;
+#endif
+      }
+      // l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        predict_scores[j] = f;
+        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
+        // scores[l2 + j] = f;
+      }
+      if(printVal) printf("%f, ", g);
+
+      // predicted_label[i] = b;
+      if (useEntropy) g = calculateEntropy(predict_scores);
+      else g = calculateInnerProd(predict_scores);
+    
+      if (printVal) printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
+      if (g < best_threshold && NONE_idx != b) {
+        correct += (b == cur_ins->supList[0].label);
+        ++act_pred_num;
+      }
+    }
+    if (0 == printVal) printf("%f,%f,%f\n", (real)100*(correct+MINIVALUE)/(act_pred_num+MINIVALUE), (real)100*(correct+MINIVALUE)/(act_ins_num+MINIVALUE), (real)200*correct/(act_ins_num+act_pred_num));
   }
   FREE(cs);
   FREE(z);
-  fclose(fout);
 }
 
 void LoadTestingData(){
@@ -951,7 +1081,57 @@ void LoadTestingData(){
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
+  fclose(fin);
+  // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
+  // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
+  // getchar();
+  // scores = (real *) calloc(ins_num * l_size, sizeof(real));
+}
 
+void LoadValidationData(){
+  FILE *fin = fopen(val_file, "r");
+  if (fin == NULL) {
+    fprintf(stderr, "no such file: %s\n", val_file);
+    exit(1);
+  }
+  if (debug_mode > 1) printf("curInsCount: %lld\n", val_ins_num);
+  long long curInsCount = val_ins_num, a, b;
+  // if (feof(fin)) printf("EOF!!!\n");
+
+  val_ins = (struct training_ins *) calloc(val_ins_num, sizeof(struct training_ins));
+  while(curInsCount--){
+    // printf("curInsCount: %lld\n", curInsCount);
+    val_ins[curInsCount].id = 1;
+    // printf("curInsCount: %lld\n", val_ins[curInsCount].id);
+    ReadWord(&val_ins[curInsCount].id, fin);
+    // putchar('a');
+    ReadWord(&val_ins[curInsCount].c_num, fin);
+    ReadWord(&val_ins[curInsCount].sup_num, fin);
+    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", val_ins[curInsCount].c_num, val_ins[curInsCount].id, val_ins[curInsCount].sup_num);
+    val_ins[curInsCount].cList = (long long *) calloc(val_ins[curInsCount].c_num, sizeof(long long));
+    val_ins[curInsCount].supList = (struct supervision *) calloc(val_ins[curInsCount].sup_num, sizeof(struct supervision));
+    // printf("%lld, %lld, %lld\n", val_ins[curInsCount].id, val_ins[curInsCount].c_num, val_ins[curInsCount].sup_num);
+
+    for (a = val_ins[curInsCount].c_num; a; --a) {
+      ReadWord(&b, fin);
+      val_ins[curInsCount].cList[a-1] = b;
+      // printf("(%lld)", b);
+    }
+    // printf("\n");
+    for (a = val_ins[curInsCount].sup_num; a; --a) {
+      ReadWord(&b, fin);
+      val_ins[curInsCount].supList[a-1].label = b;
+      ReadWord(&b, fin);
+      val_ins[curInsCount].supList[a-1].function_id = b;
+      // printf("(%lld, %lld)", val_ins[curInsCount].supList[a-1].label, val_ins[curInsCount].supList[a-1].function_id);
+    }
+    // printf("\n");
+  }
+  if ((debug_mode > 1)) {
+    printf("load Done\n");
+    printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
+  }
+  fclose(fin);
   // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
   // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
   // getchar();
@@ -971,9 +1151,10 @@ int ArgPos(char *str, int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+  srand(19940410);
   int i;
   if (argc == 1) {
-    printf("WORD VECTOR estimation toolkit v 0.1b\n\n");
+    printf("ReHession alpha 1.0\n\n");
     printf("Options:\n");
     printf("Parameters for training:\n");
     printf("-cleng\n-lleng\n-train\n-debug\n-binary\n-alpha\n-reSample\n-sample\n-negative\n-threads\n-min-count\n-instances\n-infer_together\n-alpha_update_every\n-iter\n-none_idx\n-no_lb\n-no_db\n-lambda1\n-lambda2\n-grad_clip\n-ingore_none\n-error_log\n-normL\n-dropout(D Mode)\nlambda1: skip-gram\nlambda2: truth finding\nlambda3: l\nlambda4: d\nlambda5: o\n lambda6: c\n");
@@ -984,17 +1165,20 @@ int main(int argc, char **argv) {
     return 0;
   }
   test_file[0] = 0;
+  val_file[0] = 0;
+  train_file[0] = 0;
   // save_vocab_file[0] = 0;
   // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lleng", argc, argv)) > 0) l_length = atoi(argv[i + 1]);
-  // if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-useEntropy", argc, argv)) > 0) useEntropy = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-test", argc, argv)) > 0) strcpy(test_file, argv[i + 1]);
-  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-val", argc, argv)) > 0) strcpy(val_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-reSample", argc, argv)) > 0) reSample = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);
@@ -1002,15 +1186,16 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-instances", argc, argv)) > 0) ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-test_instances", argc, argv)) > 0) test_ins_num = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-val_instances", argc, argv)) > 0) val_ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-infer_together", argc, argv)) > 0) infer_together = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-print_val", argc, argv)) > 0) printVal = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iters = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
-  // else if (0 != special_none) {fprintf(stderr, "none_idx is required" );}
   if ((i = ArgPos((char *)"-no_lb", argc, argv)) > 0) no_lb = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-no_db", argc, argv)) > 0) no_db = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-normL", argc, argv)) > 0) normL = atoi(argv[i + 1]);
-  // if ((i = ArgPos((char *)"-ignore_none", argc, argv)) > 0) ignore_none = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-ignore_none", argc, argv)) > 0) ignore_none = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda1", argc, argv)) > 0) lambda1 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda2", argc, argv)) > 0) lambda2 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda3", argc, argv)) > 0) lambda3 = atof(argv[i + 1]);
@@ -1045,6 +1230,8 @@ int main(int argc, char **argv) {
   if (normL > 0) normalizeL();
   if (debug_mode > 1) printf("\nLoading test file %s\n", test_file);
   LoadTestingData();
+  if (debug_mode > 1) printf("\nLoading validation file %s\n", val_file);
+  LoadValidationData();
   if (debug_mode > 1) printf("start Testing \n ");
   EvaluateModel();
   if (debug_mode > 1) printf("releasing memory\n");

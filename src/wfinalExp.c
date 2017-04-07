@@ -64,7 +64,7 @@ char train_file[MAX_STRING], test_file[MAX_STRING], val_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0, special_none = 0 ;//, future work!! new labelling function...
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0, special_none = 0, printVal = 0 ;//, future work!! new labelling function...
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
 long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
@@ -246,6 +246,7 @@ void LoadTrainingData(){
     ReadWord(&data[curInsCount].id, fin);
     ReadWord(&data[curInsCount].c_num, fin);
     ReadWord(&data[curInsCount].sup_num, fin);
+    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", data[curInsCount].c_num, data[curInsCount].id, data[curInsCount].sup_num);
     data[curInsCount].cList = (long long *) calloc(data[curInsCount].c_num, sizeof(long long));
     data[curInsCount].supList = (struct supervision *) calloc(data[curInsCount].sup_num, sizeof(struct supervision));
 
@@ -267,6 +268,7 @@ void LoadTrainingData(){
     DDMode({printf("\n");})
   }
   c_size++; d_size++; l_size++;
+  fclose(fin);
   if ((debug_mode > 1)) {
     // printf("load Done\n");
     // printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
@@ -850,7 +852,7 @@ void EvaluateModel() {
       correct += (b == cur_ins->supList[0].label);
       ++act_ins_num;
     }
-    printf("%f, ", (real) correct / act_ins_num * 100);
+    if (0 == printVal) printf("%f, ", (real) correct / act_ins_num * 100);
     correct = 0;
     act_ins_num = 0;
     for (i = 0; i < test_ins_num; ++i){
@@ -894,11 +896,12 @@ void EvaluateModel() {
         // scores[l2 + j] = f;
       }
       // predicted_label[i] = b;
+      if (printVal) printf("%lld, %lld\n", cur_ins->supList[0].label, b);
       if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
       correct += (b == cur_ins->supList[0].label);
       ++act_ins_num;
     }
-    printf("%f\n", (real) correct / act_ins_num * 100);
+    if (0 == printVal) printf("%f\n", (real) correct / act_ins_num * 100);
   } else {
     long long correct = 0;
     long long act_ins_num = 0, act_pred_num = 0;
@@ -931,7 +934,7 @@ void EvaluateModel() {
       }
       // l2 = i * l_size;
       b = -1; g = 0;
-      for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
+      for (j = 0; j < l_size; ++j) {
         if (0 == no_lb) f = lb[j];
         else f = 0;
         l1 = j * l_length;
@@ -944,13 +947,17 @@ void EvaluateModel() {
         // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
         // scores[l2 + j] = f;
       }
-      label_list[i] = (b==cur_ins->supList[0].label);
-      if (useEntropy) entropy_list[i] = calculateEntropy(predict_scores);
-      else entropy_list[i] = calculateInnerProd(predict_scores);
+      label_list[i] = (b==cur_ins->supList[0].label) && (NONE_idx != b);
+      if (NONE_idx != b) {
+        if (useEntropy) entropy_list[i] = calculateEntropy(predict_scores);
+        else entropy_list[i] = calculateInnerProd(predict_scores);
+      } else {
+        entropy_list[i] = INFINITY;
+      }
     }
     real min_entropy = INFINITY, max_entropy = -INFINITY, best_pre = -INFINITY, best_rec = -INFINITY, best_f1 = -INFINITY, best_threshold = 1;
 
-    for (i = 0; i < val_ins_num; ++i){
+    for (i = 0; i < val_ins_num; ++i) if (entropy_list[i] < INFINITY) {
       min_entropy = min_entropy < entropy_list[i] ? min_entropy : entropy_list[i];
       max_entropy = max_entropy > entropy_list[i] ? max_entropy : entropy_list[i]; 
     }
@@ -973,7 +980,10 @@ void EvaluateModel() {
       }
     }
 
-    printf("%f,%f,%f,", best_pre, best_rec, best_f1);
+    if (0 == printVal) printf("%f,%f,%f,", best_pre, best_rec, best_f1);
+
+    if (printVal) printf("\n");
+
     for (i = 0; i < test_ins_num; ++i){
       struct training_ins * cur_ins = test_ins + i;
       //calculate z;
@@ -999,7 +1009,7 @@ void EvaluateModel() {
       }
       // l2 = i * l_size;
       b = -1; g = 0;
-      for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
+      for (j = 0; j < l_size; ++j) {
         if (0 == no_lb) f = lb[j];
         else f = 0;
         l1 = j * l_length;
@@ -1012,16 +1022,19 @@ void EvaluateModel() {
         // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
         // scores[l2 + j] = f;
       }
+      if(printVal) printf("%f, ", g);
+
       // predicted_label[i] = b;
       if (useEntropy) g = calculateEntropy(predict_scores);
       else g = calculateInnerProd(predict_scores);
     
-      if (g < best_threshold) {
+      if (printVal) printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
+      if (g < best_threshold && NONE_idx != b) {
         correct += (b == cur_ins->supList[0].label);
         ++act_pred_num;
       }
     }
-    printf("%f,%f,%f\n", (real)100*(correct+MINIVALUE)/(act_pred_num+MINIVALUE), (real)100*(correct+MINIVALUE)/(act_ins_num+MINIVALUE), (real)200*correct/(act_ins_num+act_pred_num));
+    if (0 == printVal) printf("%f,%f,%f\n", (real)100*(correct+MINIVALUE)/(act_pred_num+MINIVALUE), (real)100*(correct+MINIVALUE)/(act_ins_num+MINIVALUE), (real)200*correct/(act_ins_num+act_pred_num));
   }
   FREE(cs);
   FREE(z);
@@ -1068,7 +1081,7 @@ void LoadTestingData(){
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
-
+  fclose(fin);
   // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
   // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
   // getchar();
@@ -1083,6 +1096,7 @@ void LoadValidationData(){
   }
   if (debug_mode > 1) printf("curInsCount: %lld\n", val_ins_num);
   long long curInsCount = val_ins_num, a, b;
+  // if (feof(fin)) printf("EOF!!!\n");
 
   val_ins = (struct training_ins *) calloc(val_ins_num, sizeof(struct training_ins));
   while(curInsCount--){
@@ -1093,6 +1107,7 @@ void LoadValidationData(){
     // putchar('a');
     ReadWord(&val_ins[curInsCount].c_num, fin);
     ReadWord(&val_ins[curInsCount].sup_num, fin);
+    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", val_ins[curInsCount].c_num, val_ins[curInsCount].id, val_ins[curInsCount].sup_num);
     val_ins[curInsCount].cList = (long long *) calloc(val_ins[curInsCount].c_num, sizeof(long long));
     val_ins[curInsCount].supList = (struct supervision *) calloc(val_ins[curInsCount].sup_num, sizeof(struct supervision));
     // printf("%lld, %lld, %lld\n", val_ins[curInsCount].id, val_ins[curInsCount].c_num, val_ins[curInsCount].sup_num);
@@ -1116,7 +1131,7 @@ void LoadValidationData(){
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
-
+  fclose(fin);
   // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
   // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
   // getchar();
@@ -1150,6 +1165,8 @@ int main(int argc, char **argv) {
     return 0;
   }
   test_file[0] = 0;
+  val_file[0] = 0;
+  train_file[0] = 0;
   // save_vocab_file[0] = 0;
   // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
@@ -1172,6 +1189,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-val_instances", argc, argv)) > 0) val_ins_num = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-infer_together", argc, argv)) > 0) infer_together = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-alpha_update_every", argc, argv)) > 0) print_every = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-print_val", argc, argv)) > 0) printVal = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iters = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-no_lb", argc, argv)) > 0) no_lb = atoi(argv[i + 1]);
@@ -1212,7 +1230,7 @@ int main(int argc, char **argv) {
   if (normL > 0) normalizeL();
   if (debug_mode > 1) printf("\nLoading test file %s\n", test_file);
   LoadTestingData();
-  if (debug_mode > 1) printf("\nLoading validation file %s\n", test_file);
+  if (debug_mode > 1) printf("\nLoading validation file %s\n", val_file);
   LoadValidationData();
   if (debug_mode > 1) printf("start Testing \n ");
   EvaluateModel();

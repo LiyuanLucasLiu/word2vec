@@ -7,7 +7,9 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: nfinalExp finalExp repExp#val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify mrmodify
+all: wfinalExp_ht wfinalExp Rep distance
+#finalExp repExp 
+#val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify mrmodify
 
 # hsre : hsre.c
 # 	$(CC) hsre.c -o ${BIN_DIR}/hsre $(CFLAGS)
@@ -27,14 +29,18 @@ all: nfinalExp finalExp repExp#val hsre mhsre rhsre mrhsre modify mmodify rmodif
 # 	$(CC) modify.c -o ${BIN_DIR}/dmodify $(CFLAGS) -DMARGIN
 # mrmodify : modify.c
 # 	$(CC) modify.c -o ${BIN_DIR}/mmodify $(CFLAGS) -DMARGIN -DDROPOUT
-finalExp : finalExp.c
-	$(CC) finalExp.c -o ${BIN_DIR}/finalExp $(CFLAGS) -DDROPOUT -DACTIVE	
-nfinalExp : finalExp.c
-	$(CC) nfinalExp.c -o ${BIN_DIR}/nfinalExp $(CFLAGS) -DDROPOUT -DACTIVE	
-repExp : entityRepresentation.c
-	$(CC) entityRepresentation.c -o ${BIN_DIR}/repExp $(CFLAGS) -DDROPOUT -DACTIVE	
-val : val.c
-	$(CC) val.c -o ${BIN_DIR}/val $(CFLAGS)
+# finalExp : finalExp.c
+	# $(CC) finalExp.c -o ${BIN_DIR}/finalExp $(CFLAGS) -DDROPOUT -DACTIVE	
+wfinalExp : wfinalExp.c
+	$(CC) wfinalExp.c -o ${BIN_DIR}/wfinalExp $(CFLAGS) -DDROPOUT -DACTIVE	
+wfinalExp_ht : wfinalExp_ht.c
+	$(CC) wfinalExp_ht.c -o ${BIN_DIR}/wfinalExp_ht $(CFLAGS) -DDROPOUT -DACTIVE	
+Rep : RepresentCS.c
+	$(CC) RepresentCS.c -o ${BIN_DIR}/repExp $(CFLAGS) -DDROPOUT -DACTIVE	
+distance: distance.c
+	$(CC) distance.c -o ${BIN_DIR}/distance $(CFLAGS)
+# val : val.c
+	# $(CC) val.c -o ${BIN_DIR}/val $(CFLAGS)
 
 clean:
 	pushd ${BIN_DIR}
