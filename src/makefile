@@ -7,7 +7,8 @@ CC = gcc
 # -O2
 CFLAGS = -lm -pthread -O2 -Wall -funroll-loops
 
-all: wfinalExp_ht wfinalExp Rep distance
+all: wfinalExp_ht wfinalExp TD
+	#distance Rep
 #finalExp repExp 
 #val hsre mhsre rhsre mrhsre modify mmodify rmodify armodify mrmodify
 
@@ -37,8 +38,10 @@ wfinalExp_ht : wfinalExp_ht.c
 	$(CC) wfinalExp_ht.c -o ${BIN_DIR}/wfinalExp_ht $(CFLAGS) -DDROPOUT -DACTIVE	
 Rep : RepresentCS.c
 	$(CC) RepresentCS.c -o ${BIN_DIR}/repExp $(CFLAGS) -DDROPOUT -DACTIVE	
-distance: distance.c
-	$(CC) distance.c -o ${BIN_DIR}/distance $(CFLAGS)
+TD : TruthCS.c
+	$(CC) TruthCS.c -o ${BIN_DIR}/tdExp $(CFLAGS) -DDROPOUT -DACTIVE	
+# distance: distance.c
+	# $(CC) distance.c -o ${BIN_DIR}/distance $(CFLAGS)
 # val : val.c
 	# $(CC) val.c -o ${BIN_DIR}/val $(CFLAGS)
 

@@ -1151,7 +1151,7 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
-void TruthDiscovery(){
+void SaveModel(){
   FILE *fo = fopen(output_file, "w");
   fprintf(fo, "%lld\n", ins_num);
   long long a, b, i, j, l1, label;
@@ -1311,7 +1311,7 @@ int main(int argc, char **argv) {
   if (debug_mode > 1) printf("start Testing \n ");
   EvaluateModel();
   if (debug_mode > 1) printf("Truth Discovery \n ");
-  TruthDiscovery();
+  SaveModel();
   if (debug_mode > 1) printf("releasing memory\n");
   DestroyNet();
   free(expTable);
