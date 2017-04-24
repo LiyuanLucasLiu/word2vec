@@ -874,13 +874,55 @@ void EvaluateModel() {
       }
     }
 
-    if (0 == printVal) printf("%f,%f,%f,", best_pre, best_rec, best_f1);
+    for (i = 0; i < val_ins_num; ++i){
+      struct training_ins * cur_ins = val_ins + i;
+      //calculate z;
+      for (j = 0; j < c_length; ++j)
+        cs[j] = 0;
+      for (a = 0; a < cur_ins->c_num; ++a) {
+        l1 = c_length * cur_ins->cList[a];
+        for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
+      }
+      for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
+      for (a = 0; a < l_length; ++a){
+        g = 0;
+        l1 = a * c_length;
+        for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
+#ifdef ACTIVE
+        if (g < -MAX_EXP) z[a] = -1;
+        else if (g > MAX_EXP) z[a] = 1;
+        else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
+#else
+        z[a] = g;
+#endif
+      }
+      // l2 = i * l_size;
+      b = -1; g = 0;
+      for (j = 0; j < l_size; ++j) {
+        if (0 == no_lb) f = lb[j];
+        else f = 0;
+        l1 = j * l_length;
+        for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
+        if (-1 == b || f > g){
+          g = f;
+          b = j;
+        }
+        predict_scores[j] = f;
+      }
+      printf("%f, ", g);
 
-    if (printVal) printf("\n");
+      if (useEntropy) g = calculateEntropy(predict_scores);
+      else g = calculateInnerProd(predict_scores);
+    
+      printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
+    }
+    
+    printf("%f,%f,%f\n", best_pre, best_rec, best_f1);
 
     correct = 0;
     act_pred_num = 0;
     act_ins_num = 0;
+    
     for (i = 0; i < test_ins_num; ++i){
       struct training_ins * cur_ins = test_ins + i;
       //calculate z;
@@ -917,12 +959,12 @@ void EvaluateModel() {
         }
         predict_scores[j] = f;
       }
-      if(printVal) printf("%f, ", g);
+      printf("%f, ", g);
 
       if (useEntropy) g = calculateEntropy(predict_scores);
       else g = calculateInnerProd(predict_scores);
     
-      if (printVal) printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
+      printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
       if (g < best_threshold && NONE_idx != b) {
         correct += (b == cur_ins->supList[0].label);
         ++act_pred_num;
