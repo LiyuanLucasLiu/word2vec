@@ -61,11 +61,10 @@ struct training_ins {
 };
 
 char train_file[MAX_STRING], test_file[MAX_STRING], val_file[MAX_STRING];
-char output_file[MAX_STRING];
 // char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
 // struct vocab_word *vocab;
 long long  *cCount;
-int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, normL = 0, special_none = 0, printVal = 0 ;//, future work!! new labelling function...
+int binary = 1, debug_mode = 2, reSample = 20, min_count = 5, num_threads = 1, min_reduce = 1, infer_together = 0, no_lb = 1, no_db = 1, ignore_none = 0, error_log = 0, special_none = 0, printVal = 0 ;//, future work!! new labelling function...
 long long c_size = 0, c_length = 100, l_size = 1, l_length = 400, d_size, tot_c_count = 0, NONE_idx = 6;
 real lambda1 = 1, lambda2 = 1, lambda3 = 0, lambda4 = 0, lambda5 = 0, lambda6 = 0;
 long long ins_num = 225977, ins_count_actual = 0; //133955 for pure_train
@@ -123,15 +122,11 @@ void InitUnigramTable() {
 // Reads a single word from a file, assuming comma + space + tab + EOL to be word boundaries
 // 0: EOF, 1: comma, 2: tab, 3: \n, 4: space
 inline int ReadWord(long long *word, FILE *fin) {
-  // putchar('c');
   char ch;
-  // printf("%lld\n", *word);
   int sgn = 1;
   *word = 0;
-  // printf("%lld\n", *word);
   while (!feof(fin)) {
     ch = fgetc(fin);
-    // putchar(ch);
     switch (ch) {
       case ',':
         return 1;
@@ -146,32 +141,10 @@ inline int ReadWord(long long *word, FILE *fin) {
         break;
       default:
         *word = *word * 10 + ch - '0';
-    }// Truncate too long words
+    }
   }
   *word = *word * sgn;
   return 0;
-}
-
-void normalizeL() {
-  real sum;
-  long long l1, i, j;
-  for (i = 0; i < l_size; ++i) {
-    l1 = i * l_length; sum = 0;
-    for (j = 0; j < l_length; ++j){
-      sum += l[l1 + j] * l[l1 + j];
-    }
-    sum = sqrt(sum);
-    sum = sum > 0 ? sum : 1;
-    for (j = 0; j < l_length; ++j){
-      l[l1 +j] /= sum;
-    }
-  }
-}
-
-// Reduces the vocabulary by removing infrequent tokens
-void ReduceVocab() {
-  int a;
-  for (a = 0; a < c_size; a++) if (cCount[a] < min_reduce) cCount[a] = 0; 
 }
 
 void InitNet() {
@@ -199,10 +172,6 @@ void InitNet() {
   cCount = (long long *) calloc(c_size,  sizeof(long long));
   CHECKNULL(cCount)
   memset(cCount, 0, c_size);
-  // ph1 = (real*) calloc(d_size, sizeof(real));
-  // CHECKNULL(ph1)
-  // ph2 = (real*) calloc(d_size, sizeof(real));
-  // CHECKNULL(ph2)
   ph2 = 1.0/l_size;
   ph1 = 1 - ph2;
   
@@ -210,16 +179,12 @@ void InitNet() {
     c[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / c_length;
     cneg[b * c_length + a] = 0;
   }
-  // printf("%lld\n", b* c_length + a);
-  // getchar();
-  // for (b = 0; b < d_size; ++b) ph1[b] = 0.6;
-  // for (b = 0; b < d_size; ++b) ph2[b] = 0.4;
   for (b = 0; b < l_size; ++b) for (a = 0; a < l_length; ++a)
-    l[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length;
+    l[b * l_length + a] = 0;
   for (b = 0; b < d_size; ++b) for (a = 0; a < l_length; ++a)
-    d[b * l_length + a] = 0;//(rand() / (real)RAND_MAX - 0.5) / l_length; 
+    d[b * l_length + a] = 0; 
   for (b = 0; b < l_length; ++b) for (a = 0; a < c_length; ++a)
-    o[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / c_length;
+    o[b * c_length + a] = (rand() / (real)RAND_MAX - 0.5) / l_length;
 }
 
 void DestroyNet() {
@@ -239,7 +204,6 @@ void LoadTrainingData(){
     fprintf(stderr, "no such file: %s\n", train_file);
     exit(1);
   }
-  // printf("curInsCount: %lld\n", ins_num);
   long long curInsCount = ins_num, a, b;
   
   data = (struct training_ins *) calloc(ins_num, sizeof(struct training_ins));
@@ -247,7 +211,6 @@ void LoadTrainingData(){
     ReadWord(&data[curInsCount].id, fin);
     ReadWord(&data[curInsCount].c_num, fin);
     ReadWord(&data[curInsCount].sup_num, fin);
-    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", data[curInsCount].c_num, data[curInsCount].id, data[curInsCount].sup_num);
     data[curInsCount].cList = (long long *) calloc(data[curInsCount].c_num, sizeof(long long));
     data[curInsCount].supList = (struct supervision *) calloc(data[curInsCount].sup_num, sizeof(struct supervision));
 
@@ -270,15 +233,10 @@ void LoadTrainingData(){
   }
   c_size++; d_size++; l_size++;
   fclose(fin);
-  if ((debug_mode > 1)) {
-    // printf("load Done\n");
-    // printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
-  }
 }
 
 void *TrainModelThread(void *id) {
   unsigned long long next_random = (long long)id;
-  // printf("%lld\n", next_random);
   long long cur_iter = 0, end_id = ((long long)id+1) * ins_num / num_threads;
   long long cur_id, last_id;
   clock_t now;
@@ -296,12 +254,8 @@ void *TrainModelThread(void *id) {
   real *score_p = (real *) calloc(l_length, sizeof(real));
   real *score_n = (real *) calloc(l_length, sizeof(real));
   real *sigmoidD = (real *) calloc(l_length, sizeof(real));
-  #ifndef MARGIN
-  //use h as margin_label value;
-  // #else
   real sum_softmax;
   real *score_kl = (real *) calloc(l_length, sizeof(real));
-  #endif
   struct training_ins tmpIns;
 
   #ifdef DROPOUT 
@@ -310,9 +264,7 @@ void *TrainModelThread(void *id) {
   real *z_dropout = (real *) calloc(l_length, sizeof(real));
   #endif
   while (cur_iter < iters) {
-    //shuffle
-    // printf("shuffled");
-
+ 
     for (cur_id = (long long)id * ins_num / num_threads; cur_id < end_id - 1; ++cur_id){
       a = end_id - cur_id;
       copyIns(&tmpIns, data + cur_id);
@@ -321,12 +273,10 @@ void *TrainModelThread(void *id) {
       copyIns(data + cur_id, data + cur_id + b);
       copyIns(data + cur_id + b, &tmpIns);
     }
-    // printf("%lld\n", cur_iter);
     cur_id = (long long)id * ins_num / num_threads;
     last_id = cur_id;
     while(cur_id < end_id){
       // update threads
-      // printf("id:%lld\n", cur_id);
       if (cur_id - last_id > 1000) {
         ins_count_actual += cur_id - last_id;
         now = clock();
@@ -350,7 +300,6 @@ void *TrainModelThread(void *id) {
         }
         last_id = cur_id;
         update_ins_count = 0;
-        // printf("update: %lld\n", update_ins_count);
         correct_ins = 0;
         alpha = starting_alpha * (1 - ins_count_actual / (real) (ins_num * iters + 1));
         if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001;
@@ -364,49 +313,35 @@ void *TrainModelThread(void *id) {
         printf("(%lld, %lld)", cur_ins->supList[i].function_id, cur_ins->supList[i].label);
       printf("\n");
       })
-      // printf("1p\n");
+   
       // feature embedding learning
       for (i = 0; i < reSample; ++i){
-        // printf("0\n");
-        b = -1;
+           b = -1;
         while(b < 0){
           if (b != -2 && sample > 0) {
             //down sampling
-            // printf("1\n");
             NRAND
-            // printf("1\n");
-            // printf("%lld, %lld\n", next_random, cur_ins->c_num);
             b = next_random % cur_ins->c_num;
-            // printf("b: %lld\n", b);
             b = cur_ins->cList[b];
-            // printf("bNum: %lld\n", b);
-
+   
             real ran = (sqrt(cCount[b] / (sample * tot_c_count)) + 1) * (sample * tot_c_count) / cCount[b];
-            // printf("ran: %f\n", ran);
             NRAND
-            // printf("nr: %lld", (next_random & 0xFFFF));
             if (ran < (next_random & 0xFFFF) / (real)65536) b = -2;
-            // printf("10\n");
           } else {
-            // printf("02\n");
             NRAND
             b = next_random % cur_ins->c_num;
             b = cur_ins->cList[b];
           }
         }
-        // printf("2\n");
         l1 = b * c_length;
         for (a = 0; a < c_length; ++a) c_error[a] = 0.0;
-        // printf("3\n");
         for (j = 0; j < negative + 1; ++j){
           NRAND
           if (0 == j){
-            //pos
             target = next_random % cur_ins->c_num;
             target = cur_ins->cList[target];
             label = 1;
           } else {
-            //neg
             target = table[next_random % table_size];
             label = 0;
           }
@@ -417,25 +352,16 @@ void *TrainModelThread(void *id) {
           if (f > MAX_EXP) g = (label - 1) * alpha * lambda1;
           else if (f < -MAX_EXP) g = (label - 0) * alpha * lambda1;
           else {
-            // printf("%f\n", f);
             g = (label - sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]) * alpha * lambda1;
-            // printf("%f\n", g);
           }
-          // putchar('c');
           for (a = 0; a < c_length; ++a) c_error[a] += g * cneg[a + l2];
-          // putchar('c');
-          for (a = 0; a < c_length; ++a) cneg[a + l2] += GCLIP(g * c[a + l1]);// - lambda3 * cneg[a + l2]);
-          // printf("%f, %f, %f\n", g, c[l1], cneg[l2]);
-          // putchar('\n');
+          for (a = 0; a < c_length; ++a) cneg[a + l2] += GCLIP(g * c[a + l1]);
         }
-        for (a = 0; a < c_length; ++a) c[a + l1] += GCLIP(c_error[a]);// - lambda3 * cneg[a + l2]);
+        for (a = 0; a < c_length; ++a) c[a + l1] += GCLIP(c_error[a]);
       }
-      // printf("2p\n");
-      //cal relation mention embedding
       for (a = 0; a < c_length; ++a) c_error[a] = 0.0;
 
 #ifdef DROPOUT
-      // printf("wrong\n");
       dropoutLeft = 0;
       for (i = 0; i < cur_ins->c_num; ++i) {
         NRAND
@@ -491,7 +417,6 @@ void *TrainModelThread(void *id) {
 #endif
       }
       for (a = 0; a < l_length; ++a) z_error[a] = 0;
-      // printf("3p\n");
       // infer true labels
       // score here is prob, which is the larger the better
       for (i = 0; i < l_size; ++i) {
@@ -504,8 +429,8 @@ void *TrainModelThread(void *id) {
         if (0 == no_db) f = db[j];
         else f = 0;
         for (a = 0; a < l_length; ++a) f+= z[a] * d[l1 + a];
-        if (f > MAX_EXP) g = 1.0/(1.0 + exp(-f));
-        else if (f < -MAX_EXP) g = 1.0/(1.0 + exp(-f));
+        if (f > MAX_EXP) g = 1;
+        else if (f < -MAX_EXP) g = 0;
         else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         a = cur_ins->supList[i].label;
         sigmoidD[a] = g;
@@ -515,8 +440,6 @@ void *TrainModelThread(void *id) {
         DDMode({printf("(%f, %f, %f, %f, %f),", ph1, ph2, g, g * ph1 + (1 - g) * ph2, g * (1 - ph1) + (1 - g) * (1 - ph2));})
       }
       f = 0.0; for (i = 0; i < l_size; ++i) f += score_n[i];
-      // g = f - score_n[NONE_idx] + score_p[NONE_idx];
-      // label = NONE_idx;
       g = -INFINITY;
       label = -1;
       for (i = 0; i < l_size; ++i) if ((z_error[i] > 0 ) && (0 == ignore_none || i != NONE_idx)) {
@@ -529,7 +452,6 @@ void *TrainModelThread(void *id) {
       DDMode({printf("\n");})
       if (0 != ignore_none && -1 == label) {
 #ifdef DROPOUT
-      // printf("wrong\n");
         for (i = 0; i < cur_ins->c_num; ++i) {
           if (cur_ins->cList[i] < 0) {
             cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
@@ -538,7 +460,6 @@ void *TrainModelThread(void *id) {
 #endif
         ++cur_id;
 
-        // printf("%lld\n", cur_id);
         continue;
       }
       if(-1 == label){
@@ -566,7 +487,6 @@ void *TrainModelThread(void *id) {
         else f = 0;
         l1 = i * l_length;
         for (a = 0; a < l_length; ++a) f += z[a] * l[l1 + a];
-        // printf("1");
         DDMode({printf("(%f, %lld), ", f, i);})
         score_kl[i] = f;
         if (f > g) {
@@ -588,40 +508,37 @@ void *TrainModelThread(void *id) {
         l1 = label * l_length;
         f = alpha * score_kl[label] / sum_softmax;
         if (debug_mode > 2) printf("%f, %f, %f, %f\n",l[l1], z[0], z_error[0], f);
-        if (0 == no_lb) lb[label] += GCLIP(alpha - f - lambda3 * lb[label]);// - f - lambda3 * lb[label]);
+        if (0 == no_lb) lb[label] += GCLIP(alpha - f - lambda3 * lb[label]);
         for (a = 0; a < l_length; ++a)
 #ifdef DROPOUT
             if(0 ==z_dropout[a])
 #endif 
         {
           z_error[a] += l[l1 + a] * (alpha - f);
-          l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
-          // printf("%f, %f, %f, %f, %f\n", z[a], alpha - f, z[a] * (alpha - f), GCLIP(z[a] * (alpha - f)), l[l1 + a]);
+          l[l1 + a] += GCLIP(z[a] * (alpha - f) - lambda3 * l[l1 + a]);
         }
-        // printf("%f\n", z_error[0]);
-        for (i = 0; i < l_size; ++i) if (i != label) { //i != NONE_idx && 
+        for (i = 0; i < l_size; ++i) if (i != label) {  
           l1 = i * l_length;
           f = alpha * score_kl[i] / sum_softmax;
-          if (0 == no_lb) lb[i] -= GCLIP(f + lambda3 * lb[i]);// + lambda3 * lb[i]);
+          if (0 == no_lb) lb[i] -= GCLIP(f + lambda3 * lb[i]);
           for (a = 0; a < l_length; ++a) 
 #ifdef DROPOUT
             if(0 ==z_dropout[a])
 #endif 
           {
             z_error[a] -= l[l1 + a] * f;
-            l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);// + lambda3 * l[l1 + a]);
+            l[l1 + a] -= GCLIP(z[a] * f + lambda3 * l[l1 + a]);
           }
         }
       } else {
-        // printf("Wrong\n");
         g = alpha / (l_size - 1);
         for (i = 0; i < l_size; ++i) if (i != NONE_idx) {
           f = g - score_kl[i] / sum_softmax;
-          if (0 == no_lb) lb[i] += GCLIP(g - lambda3 * lb[i]);// - lambda3 * lb[i]);
+          if (0 == no_lb) lb[i] += GCLIP(g - lambda3 * lb[i]);
           l1 = i * l_length;
           for (a = 0; a < l_length; ++a){
             z_error[a] += l[l1 + a] * f;
-            l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);// - lambda3 * l[l1 + a]);
+            l[l1 + a] += GCLIP(z[a] * f - lambda3 * l[l1 + a]);
           }
         }
       }
@@ -630,7 +547,6 @@ void *TrainModelThread(void *id) {
       DDMode({printf("label: %lld, predicted: %lld\n", label, predicted_label);})
       correct_ins += (label == predicted_label) && (label != NONE_idx);
       update_ins_count += (label != NONE_idx);
-      // }
       // update d, db
       // update ph1, ph2
       for (i = 0 ; i < cur_ins->sup_num ; ++i){
@@ -642,30 +558,27 @@ void *TrainModelThread(void *id) {
           //d, db
           g = alpha * lambda2 * (ph1 - ph2) * sigmoidD[a] * (1- sigmoidD[a]) / f;
           l1 = j * l_length;
-          if (0 == no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);// - lambda3 * db[j]);
+          if (0 == no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);
           for (b = 0; b < l_length; ++b)
 #ifdef DROPOUT
             if(0 ==z_dropout[b])
 #endif 
           {
             z_error[b] += d[l1 + b] * g;
-            d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
+            d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);
           }
-          //ph1, ph2
-          // ph1[j] += alpha * lambda2 * sigmoidD[a] / f;
-          // ph2[j] += alpha * lambda2 * (1 - sigmoidD[a]) / f;
         } else {
           //d, db
           g = alpha * lambda2 * (ph2 - ph1) * sigmoidD[a] * (1 - sigmoidD[a]) / f;
           l1 = j * l_length;
-          if (0== no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);// - lambda3 * db[j]);
+          if (0== no_db) db[j] += GCLIP(g - alpha * lambda4 * db[j]);
           for (b = 0; b< l_length; ++b) 
 #ifdef DROPOUT
             if(0 ==z_dropout[b])
 #endif 
           {
             z_error[b] += d[l1 + b] * g;
-            d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);// - lambda3 * d[l1 + b]);
+            d[l1 + b] += GCLIP(z[b] * g - alpha * lambda4 * d[l1 + b]);
           }
         }
       }
@@ -682,17 +595,14 @@ void *TrainModelThread(void *id) {
 #endif 
       {
         l1 = a * c_length;
-        for (b = 0; b < c_length; ++b) o[l1 + b] += GCLIP(z_error[a] * c_error[b] - alpha * lambda5 * o[l1 + b]);// - lambda3 * o[l1 + b]);
+        for (b = 0; b < c_length; ++b) o[l1 + b] += GCLIP(z_error[a] * c_error[b] - alpha * lambda5 * o[l1 + b]);
       }
-      // update c
       for (a = 0; a < c_length; ++a) c_error[a] = 0;
       for (a = 0; a < l_length; ++a) {
         l1 = a * c_length;
-        // if (a % 40 ==0 ) printf("%f, %f, %f, %f, %lld\n", c[9232900], c_error[0], z_error[a], o[l1], a);
         for (b = 0; b < c_length; ++b) c_error[b] += z_error[a] * o[l1 + b];
       }
 #ifdef DROPOUT
-      // printf("wrong\n");
       for (a = 0; a < c_length; ++a) {
         if (0==c_dropout[a]) 
           c_error[a] = (c_error[a] + MINIVALUE)/(dropoutLeft + MINIVALUE);
@@ -703,7 +613,7 @@ void *TrainModelThread(void *id) {
         if (cur_ins->cList[i] >= 0) {
           l1 = cur_ins->cList[i] * c_length;
           for (j = 0; j < c_length; ++j) if(0==c_dropout[j])
-            c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);// - lambda3 * c[l1 + j]);
+            c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);
         } else {
           cur_ins->cList[i] = -1 * (cur_ins->cList[i] + 1);
         }
@@ -712,7 +622,7 @@ void *TrainModelThread(void *id) {
       for (a = 0; a < c_length; ++a) c_error[a] /= cur_ins->c_num;
       for (i = 0; i < cur_ins->c_num; ++i) {
         l1 = cur_ins->cList[i] * c_length;
-        for (j = 0; j < c_length; ++j) c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);// - lambda3 * c[l1 + j]);
+        for (j = 0; j < c_length; ++j) c[l1 + j] += GCLIP(c_error[j]- alpha * lambda6 * c[l1 + j]);
       }
 #endif
       // update index
@@ -724,7 +634,6 @@ void *TrainModelThread(void *id) {
 }
 
 void TrainModel() {
-  // unsigned long long next_random = (long long)123456789;
   struct training_ins tmpIns;
   long long a, b;
   pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
@@ -739,7 +648,6 @@ void TrainModel() {
   if (negative > 0) {
     for (a = 0; a < ins_num; ++a) {
       //shuffle
-      // NRAND
       b = ((int)(rand() / (RAND_MAX / ins_num))) % ins_num;
 
       copyIns(&tmpIns, data + a);
@@ -832,8 +740,6 @@ void EvaluateModel() {
         z[a] = g;
 #endif
       }
-      // for (a = 0; a < l_length; ++a)
-      // l2 = i * l_size;
       b = -1; g = 0;
       for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
         if (0 == no_lb) f = lb[j];
@@ -845,10 +751,7 @@ void EvaluateModel() {
           b = j;
         }
         if (debug_mode > 2) printf("%f, ", f);
-        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
-        // scores[l2 + j] = f;
       }
-      // predicted_label[i] = b;
       if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
       correct += (b == cur_ins->supList[0].label);
       ++act_ins_num;
@@ -880,8 +783,6 @@ void EvaluateModel() {
         z[a] = g;
 #endif
       }
-      // for (a = 0; a < l_length; ++a)
-      // l2 = i * l_size;
       b = -1; g = 0;
       for (j = 0; j < l_size; ++j) if (j != NONE_idx) {
         if (0 == no_lb) f = lb[j];
@@ -893,10 +794,7 @@ void EvaluateModel() {
           b = j;
         }
         if (debug_mode > 2) printf("%f, ", f);
-        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
-        // scores[l2 + j] = f;
       }
-      // predicted_label[i] = b;
       if (printVal) printf("%lld, %lld\n", cur_ins->supList[0].label, b);
       if (debug_mode > 2) printf("%lld, %lld, %lld\n", i, cur_ins->supList[0].label, b);
       correct += (b == cur_ins->supList[0].label);
@@ -933,7 +831,6 @@ void EvaluateModel() {
         z[a] = g;
 #endif
       }
-      // l2 = i * l_size;
       b = -1; g = 0;
       for (j = 0; j < l_size; ++j) {
         if (0 == no_lb) f = lb[j];
@@ -945,8 +842,6 @@ void EvaluateModel() {
           b = j;
         }
         predict_scores[j] = f;
-        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
-        // scores[l2 + j] = f;
       }
       label_list[i] = (b==cur_ins->supList[0].label) && (NONE_idx != b);
       if (NONE_idx != b) {
@@ -1020,12 +915,9 @@ void EvaluateModel() {
           b = j;
         }
         predict_scores[j] = f;
-        // DDMode(printf("%d, %d, %lld, %f, %f, %f\n", i, j, l2 + j, f, z[0], l[l1]));
-        // scores[l2 + j] = f;
       }
       if(printVal) printf("%f, ", g);
 
-      // predicted_label[i] = b;
       if (useEntropy) g = calculateEntropy(predict_scores);
       else g = calculateInnerProd(predict_scores);
     
@@ -1052,42 +944,30 @@ void LoadTestingData(){
   
   test_ins = (struct training_ins *) calloc(test_ins_num, sizeof(struct training_ins));
   while(curInsCount--){
-    // printf("curInsCount: %lld\n", curInsCount);
     test_ins[curInsCount].id = 1;
-    // printf("curInsCount: %lld\n", test_ins[curInsCount].id);
     ReadWord(&test_ins[curInsCount].id, fin);
-    // putchar('a');
     ReadWord(&test_ins[curInsCount].c_num, fin);
     ReadWord(&test_ins[curInsCount].sup_num, fin);
     test_ins[curInsCount].cList = (long long *) calloc(test_ins[curInsCount].c_num, sizeof(long long));
     test_ins[curInsCount].supList = (struct supervision *) calloc(test_ins[curInsCount].sup_num, sizeof(struct supervision));
-    // printf("%lld, %lld, %lld\n", test_ins[curInsCount].id, test_ins[curInsCount].c_num, test_ins[curInsCount].sup_num);
-
+ 
     for (a = test_ins[curInsCount].c_num; a; --a) {
       ReadWord(&b, fin);
       test_ins[curInsCount].cList[a-1] = b;
-      // printf("(%lld)", b);
     }
-    // printf("\n");
     for (a = test_ins[curInsCount].sup_num; a; --a) {
       ReadWord(&b, fin);
       test_ins[curInsCount].supList[a-1].label = b;
       ReadWord(&b, fin);
       test_ins[curInsCount].supList[a-1].function_id = b;
-      // printf("(%lld, %lld)", test_ins[curInsCount].supList[a-1].label, test_ins[curInsCount].supList[a-1].function_id);
     }
-    // printf("\n");
   }
   if ((debug_mode > 1)) {
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
   fclose(fin);
-  // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
-  // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
-  // getchar();
-  // scores = (real *) calloc(ins_num * l_size, sizeof(real));
-}
+ }
 
 void LoadValidationData(){
   FILE *fin = fopen(val_file, "r");
@@ -1097,46 +977,32 @@ void LoadValidationData(){
   }
   if (debug_mode > 1) printf("curInsCount: %lld\n", val_ins_num);
   long long curInsCount = val_ins_num, a, b;
-  // if (feof(fin)) printf("EOF!!!\n");
-
+ 
   val_ins = (struct training_ins *) calloc(val_ins_num, sizeof(struct training_ins));
   while(curInsCount--){
-    // printf("curInsCount: %lld\n", curInsCount);
     val_ins[curInsCount].id = 1;
-    // printf("curInsCount: %lld\n", val_ins[curInsCount].id);
     ReadWord(&val_ins[curInsCount].id, fin);
-    // putchar('a');
     ReadWord(&val_ins[curInsCount].c_num, fin);
     ReadWord(&val_ins[curInsCount].sup_num, fin);
-    // printf("c_num: %lld, id: %lld, sup_num: %lld\n", val_ins[curInsCount].c_num, val_ins[curInsCount].id, val_ins[curInsCount].sup_num);
     val_ins[curInsCount].cList = (long long *) calloc(val_ins[curInsCount].c_num, sizeof(long long));
     val_ins[curInsCount].supList = (struct supervision *) calloc(val_ins[curInsCount].sup_num, sizeof(struct supervision));
-    // printf("%lld, %lld, %lld\n", val_ins[curInsCount].id, val_ins[curInsCount].c_num, val_ins[curInsCount].sup_num);
-
+ 
     for (a = val_ins[curInsCount].c_num; a; --a) {
       ReadWord(&b, fin);
       val_ins[curInsCount].cList[a-1] = b;
-      // printf("(%lld)", b);
     }
-    // printf("\n");
     for (a = val_ins[curInsCount].sup_num; a; --a) {
       ReadWord(&b, fin);
       val_ins[curInsCount].supList[a-1].label = b;
       ReadWord(&b, fin);
       val_ins[curInsCount].supList[a-1].function_id = b;
-      // printf("(%lld, %lld)", val_ins[curInsCount].supList[a-1].label, val_ins[curInsCount].supList[a-1].function_id);
     }
-    // printf("\n");
   }
   if ((debug_mode > 1)) {
     printf("load Done\n");
     printf("c_size: %lld, d_size: %lld, l_size: %lld\n", c_size, d_size, l_size);
   }
   fclose(fin);
-  // predicted_label = (long long *) calloc(ins_num, sizeof(long long));
-  // printf("%lld, %lld， %lld\n", ins_num, l_size, ins_num * l_size);
-  // getchar();
-  // scores = (real *) calloc(ins_num * l_size, sizeof(real));
 }
 
 int ArgPos(char *str, int argc, char **argv) {
@@ -1151,79 +1017,6 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
-void TruthDiscovery(){
-  FILE *fo = fopen(output_file, "w");
-  fprintf(fo, "%lld\n", ins_num);
-  long long a, b, i, j, l1, label;
-  real f, g, h;
-  real *cs = (real *) calloc(c_length, sizeof(real));
-  real *z = (real *) calloc(l_length, sizeof(real));
-
-  real *score_p = (real *) calloc(l_length, sizeof(real));
-  real *score_n = (real *) calloc(l_length, sizeof(real));
-  real *label_table = (real *) calloc(l_size, sizeof(real));
-  // real *sigmoidD = (real *) calloc(l_length, sizeof(real));
-  
-  for (i = 0; i < ins_num; ++i) {
-    struct training_ins * cur_ins = data + i;
-    for (j = 0; j < c_length; ++j) cs[j] = 0;
-    for (a = 0; a < cur_ins->c_num; ++a) {
-      l1 = c_length * cur_ins->cList[a];
-      for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
-    }
-    for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
-    for (a =0; a < l_length; ++a){
-      g = 0;
-      l1 = a * c_length;
-      for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
-#ifdef ACTIVE
-      if (g < -MAX_EXP) z[a] = -1;
-      else if (g > MAX_EXP) z[a] = 1;
-      else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-#else
-      z[a] = g;
-#endif
-    }
-
-    fprintf(fo, "[%lld, %lld, [", cur_ins->id, cur_ins->sup_num);
-
-    for (j = 0; j < l_size; ++j) {
-      score_n[j] = 0;
-      score_p[j] = 0;
-      label_table[j] = 0;
-    }
-
-    for (b = 0; b < cur_ins->sup_num; ++b){
-      j = cur_ins->supList[b].function_id;
-      l1 = j * l_length;
-      f = 0;
-      for (a = 0; a < l_length; ++a) f += z[a] * d[l1 + a];
-      if (f > MAX_EXP) g = 1;
-      else if (f < -MAX_EXP) g = 0;
-      else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-      a = cur_ins->supList[b].label;
-      if (b > 0) fprintf(fo, ",");
-      fprintf(fo, "[%lld, %lld, %f]", j, a, g);
-      score_p[a] += log(g * ph1 + (1 - g) * ph2);
-      score_n[a] += log(g * (1 - ph1) + (1 - g) * (1 - ph2));
-      label_table[a] = 1;
-    }
-
-    f = 0.0; for(j = 0; j < l_size; ++j) f += score_n[j];
-    g = -INFINITY;
-    label = -1;
-    for (j = 0; j < l_size; ++j) if ((label_table[j] > 0 ) && (0 == ignore_none || j != NONE_idx)) {
-      h = f - score_n[j] + score_p[j];
-      if (h > g){
-        label = j;
-        g = h;
-      }
-    }
-
-    fprintf(fo, "], %lld]\n", label);
-  }
-}
-
 int main(int argc, char **argv) {
   srand(19940410);
   int i;
@@ -1232,8 +1025,6 @@ int main(int argc, char **argv) {
     printf("Options:\n");
     printf("Parameters for training:\n");
     printf("-cleng\n-lleng\n-train\n-debug\n-binary\n-alpha\n-reSample\n-sample\n-negative\n-threads\n-min-count\n-instances\n-infer_together\n-alpha_update_every\n-iter\n-none_idx\n-no_lb\n-no_db\n-lambda1\n-lambda2\n-grad_clip\n-ingore_none\n-error_log\n-normL\n-dropout(D Mode)\nlambda1: skip-gram\nlambda2: truth finding\nlambda3: l\nlambda4: d\nlambda5: o\n lambda6: c\n");
-    // printf("\t-none_idx <file>\n");
-    // printf("\t\tthe index of None Type\n");
     printf("\nExamples:\n");
     printf("./rmodify -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/test.data -threads 20 -NONE_idx 6 -cleng 30 -lleng 50 -resample 30 -ignore_none 0 -iter 100 -normL 0 -debug 2 -dropout 0.5\n\n");//-none_idx 5 
     return 0;
@@ -1241,9 +1032,6 @@ int main(int argc, char **argv) {
   test_file[0] = 0;
   val_file[0] = 0;
   train_file[0] = 0;
-  output_file[0] = 0;
-  // save_vocab_file[0] = 0;
-  // read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-cleng", argc, argv)) > 0) c_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lleng", argc, argv)) > 0) l_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-special_none", argc, argv)) > 0) special_none = atoi(argv[i + 1]);
@@ -1254,7 +1042,6 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-test", argc, argv)) > 0) strcpy(test_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-val", argc, argv)) > 0) strcpy(val_file, argv[i + 1]);
-  if ((i = ArgPos((char *)"-output_file", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-reSample", argc, argv)) > 0) reSample = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-negative", argc, argv)) > 0) negative = atoi(argv[i + 1]);
@@ -1270,7 +1057,6 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-none_idx", argc, argv)) > 0) NONE_idx = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-no_lb", argc, argv)) > 0) no_lb = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-no_db", argc, argv)) > 0) no_db = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-normL", argc, argv)) > 0) normL = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-ignore_none", argc, argv)) > 0) ignore_none = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda1", argc, argv)) > 0) lambda1 = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-lambda2", argc, argv)) > 0) lambda2 = atof(argv[i + 1]);
@@ -1303,15 +1089,12 @@ int main(int argc, char **argv) {
   InitNet();
   if (debug_mode > 1) printf("start training, iters: %lld \n ", iters);
   TrainModel();
-  if (normL > 0) normalizeL();
   if (debug_mode > 1) printf("\nLoading test file %s\n", test_file);
   LoadTestingData();
   if (debug_mode > 1) printf("\nLoading validation file %s\n", val_file);
   LoadValidationData();
   if (debug_mode > 1) printf("start Testing \n ");
   EvaluateModel();
-  if (debug_mode > 1) printf("Truth Discovery \n ");
-  TruthDiscovery();
   if (debug_mode > 1) printf("releasing memory\n");
   DestroyNet();
   free(expTable);

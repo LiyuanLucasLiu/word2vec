@@ -504,8 +504,8 @@ void *TrainModelThread(void *id) {
         if (0 == no_db) f = db[j];
         else f = 0;
         for (a = 0; a < l_length; ++a) f+= z[a] * d[l1 + a];
-        if (f > MAX_EXP) g = 1.0/(1.0 + exp(-f));
-        else if (f < -MAX_EXP) g = 1.0/(1.0 + exp(-f));
+        if (f > MAX_EXP) g = 1;
+        else if (f < -MAX_EXP) g = 0;
         else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
         a = cur_ins->supList[i].label;
         sigmoidD[a] = g;
@@ -800,6 +800,7 @@ real calculateInnerProd(real *tmp_predict_scores){
 }
 
 void EvaluateModel() {
+  FILE *fo = fopen(output_file, "w");
   long long i, j, a, b;
   long long l1;
   real f, g;
@@ -1030,6 +1031,8 @@ void EvaluateModel() {
       else g = calculateInnerProd(predict_scores);
     
       if (printVal) printf("%f, %f, %d, %lld, %lld\n", g, best_threshold, g < best_threshold, b, cur_ins->supList[0].label);
+
+      fprintf(fo, "[%lld, %lld, %lld, %lld]\n", cur_ins->id, cur_ins->supList[0].label, b, g < best_threshold);
       if (g < best_threshold && NONE_idx != b) {
         correct += (b == cur_ins->supList[0].label);
         ++act_pred_num;
@@ -1151,79 +1154,6 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
-void TruthDiscovery(){
-  FILE *fo = fopen(output_file, "w");
-  fprintf(fo, "%lld\n", ins_num);
-  long long a, b, i, j, l1, label;
-  real f, g, h;
-  real *cs = (real *) calloc(c_length, sizeof(real));
-  real *z = (real *) calloc(l_length, sizeof(real));
-
-  real *score_p = (real *) calloc(l_length, sizeof(real));
-  real *score_n = (real *) calloc(l_length, sizeof(real));
-  real *label_table = (real *) calloc(l_size, sizeof(real));
-  // real *sigmoidD = (real *) calloc(l_length, sizeof(real));
-  
-  for (i = 0; i < ins_num; ++i) {
-    struct training_ins * cur_ins = data + i;
-    for (j = 0; j < c_length; ++j) cs[j] = 0;
-    for (a = 0; a < cur_ins->c_num; ++a) {
-      l1 = c_length * cur_ins->cList[a];
-      for (j = 0; j < c_length; ++j) cs[j] += c[l1 + j];
-    }
-    for (j = 0; j < c_length; ++j) cs[j] /= cur_ins->c_num;
-    for (a =0; a < l_length; ++a){
-      g = 0;
-      l1 = a * c_length;
-      for (j = 0; j < c_length; ++j) g += cs[j] * o[l1 + j];
-#ifdef ACTIVE
-      if (g < -MAX_EXP) z[a] = -1;
-      else if (g > MAX_EXP) z[a] = 1;
-      else z[a] = tanhTable[(int)((g + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-#else
-      z[a] = g;
-#endif
-    }
-
-    fprintf(fo, "[%lld, %lld, [", cur_ins->id, cur_ins->sup_num);
-
-    for (j = 0; j < l_size; ++j) {
-      score_n[j] = 0;
-      score_p[j] = 0;
-      label_table[j] = 0;
-    }
-
-    for (b = 0; b < cur_ins->sup_num; ++b){
-      j = cur_ins->supList[b].function_id;
-      l1 = j * l_length;
-      f = 0;
-      for (a = 0; a < l_length; ++a) f += z[a] * d[l1 + a];
-      if (f > MAX_EXP) g = 1;
-      else if (f < -MAX_EXP) g = 0;
-      else g = sigTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-      a = cur_ins->supList[b].label;
-      if (b > 0) fprintf(fo, ",");
-      fprintf(fo, "[%lld, %lld, %f]", j, a, g);
-      score_p[a] += log(g * ph1 + (1 - g) * ph2);
-      score_n[a] += log(g * (1 - ph1) + (1 - g) * (1 - ph2));
-      label_table[a] = 1;
-    }
-
-    f = 0.0; for(j = 0; j < l_size; ++j) f += score_n[j];
-    g = -INFINITY;
-    label = -1;
-    for (j = 0; j < l_size; ++j) if ((label_table[j] > 0 ) && (0 == ignore_none || j != NONE_idx)) {
-      h = f - score_n[j] + score_p[j];
-      if (h > g){
-        label = j;
-        g = h;
-      }
-    }
-
-    fprintf(fo, "], %lld]\n", label);
-  }
-}
-
 int main(int argc, char **argv) {
   srand(19940410);
   int i;
@@ -1310,8 +1240,6 @@ int main(int argc, char **argv) {
   LoadValidationData();
   if (debug_mode > 1) printf("start Testing \n ");
   EvaluateModel();
-  if (debug_mode > 1) printf("Truth Discovery \n ");
-  TruthDiscovery();
   if (debug_mode > 1) printf("releasing memory\n");
   DestroyNet();
   free(expTable);
