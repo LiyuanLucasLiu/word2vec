@@ -30,7 +30,16 @@ do
 		done
 	done
 done
-../bin/ReHession -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/eva.data -val /shared/data/ll2/CoType/data/intermediate/KBP/val.data -threads 30 -none_idx 6 -cleng 150 -lleng 250 -negative 9 -resample 20 -ignore_none 0 -iter 15 -alpha 0.025 -normL 0 -debug 1 -dropout 0.4 -instances 225977 -test_instances 1900 -val_instances 211 -special_none 0 -error_log 1
+# ../bin/ReHession -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/eva.data -val /shared/data/ll2/CoType/data/intermediate/KBP/val.data -threads 30 -none_idx 6 -cleng 150 -lleng 250 -negative 9 -resample 20 -ignore_none 0 -iter 15 -alpha 0.025 -normL 0 -debug 1 -dropout 0.4 -instances 225977 -test_instances 1900 -val_instances 211 -special_none 0 -error_log 1
+# ../bin/ReHessionN -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/eva.data -val /shared/data/ll2/CoType/data/intermediate/KBP/val.data -threads 20 -none_idx 6 -cleng 150 -lleng 250 -negative 2 -resample 20 -ignore_none 0 -iter 25 -alpha 0.025 -normL 0 -debug 1 -dropout 0.3 -instances 225977 -test_instances 1900 -val_instances 211 -special_none 0 -error_log 1
+
+# ../bin/ReHessionN -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/eva.data -val /shared/data/ll2/CoType/data/intermediate/KBP/val.data -threads 20 -none_idx 6 -cleng 150 -lleng 250 -negative 2 -resample 25 -ignore_none 0 -iter 25 -alpha 0.025 -normL 0 -debug 1 -dropout 0.3 -instances 225977 -test_instances 1900 -val_instances 211 -special_none 0 -error_log 1
+
+
+../bin/ReHessionN_CS410 -train /shared/data/ll2/CoType/data/intermediate/NYT/train.data -test /shared/data/ll2/CoType/data/intermediate/NYT/eva.data -val /shared/data/ll2/CoType/data/intermediate/NYT/val.data -output /shared/data/ll2/CS410/Model/nyt.model -threads 20 -none_idx 6 -cleng 150 -lleng 250 -negative 10 -resample 20 -ignore_none 0 -iter 30 -alpha 0.025 -normL 0 -debug 1 -dropout 0.4 -instances 530767 -test_instances 3423 -val_instances 380 -special_none 0 -error_log 1
+
+
+# ../bin/ReHessionN_CS410 -train /shared/data/ll2/CoType/data/intermediate/KBP/train.data -test /shared/data/ll2/CoType/data/intermediate/KBP/eva.data -val /shared/data/ll2/CoType/data/intermediate/KBP/val.data -output /shared/data/ll2/CS410/Model/kbp.model -threads 20 -none_idx 6 -cleng 150 -lleng 250 -negative 2 -resample 25 -ignore_none 0 -iter 25 -alpha 0.025 -normL 0 -debug 1 -dropout 0.3 -instances 225977 -test_instances 1900 -val_instances 211 -special_none 0 -error_log 1
 
 # ../bin/wfinalExp -train /shared/data/ll2/CoType/data/intermediate/BioInfer/train.data -test /shared/data/ll2/CoType/data/intermediate/BioInfer/eva.data -val /shared/data/ll2/CoType/data/intermediate/BioInfer/val.data -threads 35 -none_idx 102 -cleng 200 -lleng 500 -negative 10 -resample 15 -ignore_none 1 -iter 20 -alpha 0.025 -normL 0 -debug 2 -dropout 0.2 -instances 94304 -test_instances 3408 -val_instances 378 -special_none 0
 
